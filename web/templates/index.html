@@ -1,0 +1,35 @@
+<!-- web/templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>{{.Title}}</h1>
+        </header>
+        
+        <main>
+            <div class="welcome-card">
+                <h2>{{.Message}}</h2>
+                <p>Your Go server is running successfully!</p>
+                
+                <div class="api-test">
+                    <button id="testApiBtn">Test API Endpoint</button>
+                    <div id="apiResponse"></div>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <p>Trading Dashboard Server v1.0</p>
+        </footer>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>
