@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"net/http"
+	"os"
 	"strconv"
 
+	password "trade/internal/auth"
 	"trade/internal/database"
 	db "trade/internal/db/sqlc"
 	"trade/internal/models"
@@ -25,8 +28,9 @@ func (h *UserHandlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var req struct {
-		Name  string `json:"name"`
-		Email string `json:"email"`
+		Name     string `json:"name"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -34,18 +38,26 @@ func (h *UserHandlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" || req.Email == "" {
-		http.Error(w, "Name and email are required", http.StatusBadRequest)
+	if req.Name == "" || req.Email == "" || req.Password == "" {
+		http.Error(w, "Name, email and password are required", http.StatusBadRequest)
+		return
+	}
+
+	password_hash, err := password.HashPassword(req.Password)
+	if err != nil {
+		http.Error(w, "Error hashing password", http.StatusInternalServerError)
 		return
 	}
 
 	params := db.CreateUserParams{
-		Name:  req.Name,
-		Email: req.Email,
+		Name:         req.Name,
+		Email:        req.Email,
+		PasswordHash: password_hash,
 	}
 
 	user, err := h.db.Queries.CreateUser(ctx, params)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v", err)
 		http.Error(w, "Error creating user", http.StatusInternalServerError)
 		return
 	}
@@ -91,7 +103,56 @@ func (h *UserHandlers) GetUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 
+	vars := mux.Vars(r)
+	idStr := vars["id"]
+
+	Id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Name     string `json:"name"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" || req.Email == "" {
+		http.Error(w, "Name and Email are required", http.StatusBadRequest)
+		return
+	}
+
+	params := db.UpdateUserParams{
+		ID:    int32(Id),
+		Name:  req.Name,
+		Email: req.Email,
+	}
+
+	if req.Password != "" {
+		passwordHash, err := password.HashPassword(req.Password)
+		if err != nil {
+			http.Error(w, "Error hashing password", http.StatusInternalServerError)
+			return
+		}
+		params.PasswordHash = passwordHash
+	}
+
+	user, err := h.db.Queries.UpdateUser(ctx, params)
+	if err != nil {
+		http.Error(w, "Error updating the user", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(user)
 }
 
 func (h *UserHandlers) DeleteUser(w http.ResponseWriter, r *http.Request) {
@@ -145,6 +206,54 @@ func apiHelloWorld(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h UserHandlers) Login(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Email == "" || req.Password == "" {
+		http.Error(w, "Email and Password are required", http.StatusBadRequest)
+		return
+	}
+
+	user, err := h.db.Queries.GetUserByEmail(ctx, req.Email)
+	if err != nil {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	if err := password.CheckPassword(req.Password, user.PasswordHash); err != nil {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	type LoginResponse struct {
+		ID      int32  `json:"id"`
+		Name    string `json:"name"`
+		Email   string `json:"email"`
+		Message string `json:"message"`
+	}
+
+	loginResponse := LoginResponse{
+		ID:      user.ID,
+		Name:    user.Name,
+		Email:   user.Email,
+		Message: "success",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(loginResponse)
+
+}
+
 func SetupRoutes(db *database.Database) *mux.Router {
 	userHandler := NewUserHandler(db)
 	r := mux.NewRouter()
@@ -154,8 +263,10 @@ func SetupRoutes(db *database.Database) *mux.Router {
 	r.HandleFunc("/api/users", userHandler.CreateUser).Methods("POST")
 	r.HandleFunc("/api/users", userHandler.ListUsers).Methods("GET")
 	r.HandleFunc("/api/users/{id}", userHandler.GetUser).Methods("GET")
+	r.HandleFunc("/api/users/{id}", userHandler.UpdateUser).Methods("PUT")
 	// r.HandleFunc("/api/users/{id}", UpdateUserHandler).Methods("PUT")
 	r.HandleFunc("/api/users/{id}", userHandler.DeleteUser).Methods("DELETE")
+	r.HandleFunc("/api/login", userHandler.Login).Methods("POST")
 
 	return r
 }
