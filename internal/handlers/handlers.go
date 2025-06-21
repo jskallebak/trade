@@ -8,9 +8,10 @@ import (
 	"os"
 	"strconv"
 
-	password "trade/internal/auth"
+	"trade/internal/auth"
 	"trade/internal/database"
 	db "trade/internal/db/sqlc"
+	"trade/internal/middleware"
 	"trade/internal/models"
 
 	"github.com/gorilla/mux"
@@ -43,7 +44,7 @@ func (h *UserHandlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	password_hash, err := password.HashPassword(req.Password)
+	password_hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		http.Error(w, "Error hashing password", http.StatusInternalServerError)
 		return
@@ -137,7 +138,7 @@ func (h *UserHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Password != "" {
-		passwordHash, err := password.HashPassword(req.Password)
+		passwordHash, err := auth.HashPassword(req.Password)
 		if err != nil {
 			http.Error(w, "Error hashing password", http.StatusInternalServerError)
 			return
@@ -230,8 +231,14 @@ func (h UserHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := password.CheckPassword(req.Password, user.PasswordHash); err != nil {
+	if err := auth.CheckPassword(req.Password, user.PasswordHash); err != nil {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	token, err := auth.GenerateJWT(user.ID, user.Email)
+	if err != nil {
+		http.Error(w, "Error generating JWT", http.StatusInternalServerError)
 		return
 	}
 
@@ -239,6 +246,7 @@ func (h UserHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		ID      int32  `json:"id"`
 		Name    string `json:"name"`
 		Email   string `json:"email"`
+		Token   string `json:"token"`
 		Message string `json:"message"`
 	}
 
@@ -246,7 +254,8 @@ func (h UserHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		ID:      user.ID,
 		Name:    user.Name,
 		Email:   user.Email,
-		Message: "success",
+		Token:   token,
+		Message: "login successful",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -254,19 +263,42 @@ func (h UserHandlers) Login(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func (h UserHandlers) GetProfile(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	userID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.db.Queries.GetUser(ctx, userID)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(user)
+}
+
 func SetupRoutes(db *database.Database) *mux.Router {
 	userHandler := NewUserHandler(db)
 	r := mux.NewRouter()
+
 	r.HandleFunc("/", helloWorld).Methods("GET")
 	r.HandleFunc("/api/hello", apiHelloWorld).Methods("GET")
-
-	r.HandleFunc("/api/users", userHandler.CreateUser).Methods("POST")
-	r.HandleFunc("/api/users", userHandler.ListUsers).Methods("GET")
-	r.HandleFunc("/api/users/{id}", userHandler.GetUser).Methods("GET")
-	r.HandleFunc("/api/users/{id}", userHandler.UpdateUser).Methods("PUT")
-	// r.HandleFunc("/api/users/{id}", UpdateUserHandler).Methods("PUT")
-	r.HandleFunc("/api/users/{id}", userHandler.DeleteUser).Methods("DELETE")
 	r.HandleFunc("/api/login", userHandler.Login).Methods("POST")
+	r.HandleFunc("/api/register", userHandler.CreateUser).Methods("POST")
+	r.Handle("/api/profile", middleware.AuthMiddleware(http.HandlerFunc(userHandler.GetProfile))).Methods("GET")
+
+	// Protected API routes (auth required)
+	api := r.PathPrefix("/api").Subrouter()
+	api.Use(middleware.AuthMiddleware)
+	api.HandleFunc("/api/users", userHandler.ListUsers).Methods("GET")
+	api.HandleFunc("/api/users/{id}", userHandler.GetUser).Methods("GET")
+	api.HandleFunc("/api/users/{id}", userHandler.UpdateUser).Methods("PUT")
+	api.HandleFunc("/api/users/{id}", userHandler.DeleteUser).Methods("DELETE")
 
 	return r
 }
