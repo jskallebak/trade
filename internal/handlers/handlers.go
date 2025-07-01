@@ -176,10 +176,46 @@ func (h *UserHandlers) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func loginPageHandler(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := template.ParseFiles("web/templates/login.html")
+	if err != nil {
+		http.Error(w, "Failed to parse template", http.StatusInternalServerError)
+		return
+	}
+
+	data := models.PageData{
+		Title: "Trading Dashboard",
+	}
+
+	err = tmpl.Execute(w, data)
+	if err != nil {
+		http.Error(w, "Template execution error", http.StatusInternalServerError)
+	}
+}
+
+func dashboardHandler(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := template.ParseFiles("web/templates/dashboard.html") // You'll create this
+	if err != nil {
+		http.Error(w, "Failed to parse template", http.StatusInternalServerError)
+		return
+	}
+
+	data := models.PageData{
+		Title:   "Dashboard",
+		Message: "Welcome to your dashboard!",
+	}
+
+	err = tmpl.Execute(w, data)
+	if err != nil {
+		http.Error(w, "Template execution error", http.StatusInternalServerError)
+	}
+}
+
 func helloWorld(w http.ResponseWriter, r *http.Request) {
 	tmpl, err := template.ParseFiles("web/templates/index.html")
 	if err != nil {
 		http.Error(w, "Failed to parse template", http.StatusInternalServerError)
+		return
 	}
 
 	data := models.PageData{
@@ -242,6 +278,17 @@ func (h UserHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set JWT token as HTTP-only cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    token,
+		HttpOnly: true,
+		Secure:   false, // Set to true in production with HTTPS
+		SameSite: http.SameSiteStrictMode,
+		Path:     "/",
+		MaxAge:   24 * 60 * 60, // 24 hours
+	})
+
 	type LoginResponse struct {
 		ID      int32  `json:"id"`
 		Name    string `json:"name"`
@@ -282,23 +329,153 @@ func (h UserHandlers) GetProfile(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
+func (h UserHandlers) Logout(w http.ResponseWriter, r *http.Request) {
+	// Clear the authentication cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:   "auth_token",
+		Value:  "",
+		MaxAge: -1,
+		Path:   "/",
+	})
+
+	// For API calls, return JSON response
+	if r.Header.Get("Content-Type") == "application/json" || r.Header.Get("Accept") == "application/json" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Logged out successfully",
+		})
+		return
+	}
+
+	// For web page calls, redirect to login
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// Dashboard API endpoints
+func (h UserHandlers) GetDashboardMetrics(w http.ResponseWriter, r *http.Request) {
+	// Mock dashboard metrics - in a real app, this would come from your trading system
+	metrics := map[string]interface{}{
+		"total_pnl":      5000.00,
+		"annualized_roi": 18.5,
+		"max_drawdown":   12.3,
+		"uptime":         99.8,
+		"active_bots":    2,
+		"total_trades":   540,
+		"win_rate":       52.3,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(metrics)
+}
+
+func (h UserHandlers) GetBotStats(w http.ResponseWriter, r *http.Request) {
+	// Mock bot statistics
+	botStats := []map[string]interface{}{
+		{
+			"bot_name":      "Alpha1",
+			"status":        "RUNNING",
+			"win_rate":      52,
+			"profit_factor": 2.6,
+			"trades":        340,
+			"pnl":           5000,
+		},
+		{
+			"bot_name":      "Beta2",
+			"status":        "STOPPED",
+			"win_rate":      49,
+			"profit_factor": 2.1,
+			"trades":        200,
+			"pnl":           -300,
+		},
+		{
+			"bot_name":      "Gamma3",
+			"status":        "RUNNING",
+			"win_rate":      58,
+			"profit_factor": 3.1,
+			"trades":        150,
+			"pnl":           2500,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(botStats)
+}
+
+func (h UserHandlers) GetPositions(w http.ResponseWriter, r *http.Request) {
+	// Mock open positions
+	positions := []map[string]interface{}{
+		{
+			"trade_id": "#25678",
+			"bot":      "Alpha1",
+			"position": "LONG",
+			"entry":    "20000",
+			"current":  "22000",
+			"pnl":      2000,
+			"time":     "2h 45m",
+			"symbol":   "BTC/USD",
+		},
+		{
+			"trade_id": "#25679",
+			"bot":      "Gamma3",
+			"position": "SHORT",
+			"entry":    "1850",
+			"current":  "1820",
+			"pnl":      300,
+			"time":     "1h 15m",
+			"symbol":   "ETH/USD",
+		},
+		{
+			"trade_id": "#25680",
+			"bot":      "Alpha1",
+			"position": "LONG",
+			"entry":    "0.52",
+			"current":  "0.48",
+			"pnl":      -400,
+			"time":     "3h 20m",
+			"symbol":   "ADA/USD",
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(positions)
+}
+
 func SetupRoutes(db *database.Database) *mux.Router {
 	userHandler := NewUserHandler(db)
 	r := mux.NewRouter()
 
-	r.HandleFunc("/", helloWorld).Methods("GET")
-	r.HandleFunc("/api/hello", apiHelloWorld).Methods("GET")
-	r.HandleFunc("/api/login", userHandler.Login).Methods("POST")
-	r.HandleFunc("/api/register", userHandler.CreateUser).Methods("POST")
-	r.Handle("/api/profile", middleware.AuthMiddleware(http.HandlerFunc(userHandler.GetProfile))).Methods("GET")
+	// Apply middleware to ALL routes (will skip auth for login routes)
+	r.Use(middleware.AuthMiddleware)
 
-	// Protected API routes (auth required)
-	api := r.PathPrefix("/api").Subrouter()
-	api.Use(middleware.AuthMiddleware)
-	api.HandleFunc("/api/users", userHandler.ListUsers).Methods("GET")
-	api.HandleFunc("/api/users/{id}", userHandler.GetUser).Methods("GET")
-	api.HandleFunc("/api/users/{id}", userHandler.UpdateUser).Methods("PUT")
-	api.HandleFunc("/api/users/{id}", userHandler.DeleteUser).Methods("DELETE")
+	// Static files (public)
+	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./web/static/"))))
+
+	// Public routes (middleware will skip auth for these)
+	r.HandleFunc("/login", loginPageHandler).Methods("GET")               // Login page
+	r.HandleFunc("/api/login", userHandler.Login).Methods("POST")         // Login API
+	r.HandleFunc("/api/register", userHandler.CreateUser).Methods("POST") // Registration API (optional)
+
+	// Protected web pages (require authentication)
+	r.HandleFunc("/", helloWorld).Methods("GET")                // Dashboard/home
+	r.HandleFunc("/dashboard", dashboardHandler).Methods("GET") // Dashboard page
+	// r.HandleFunc("/profile", profilePageHandler).Methods("GET") // Profile page
+
+	// Logout route (can be accessed both authenticated and unauthenticated)
+	r.HandleFunc("/logout", userHandler.Logout).Methods("GET", "POST")
+	r.HandleFunc("/api/logout", userHandler.Logout).Methods("POST")
+
+	// Protected API routes (require authentication)
+	r.HandleFunc("/api/hello", apiHelloWorld).Methods("GET") // Test API endpoint
+	r.HandleFunc("/api/profile", userHandler.GetProfile).Methods("GET")
+	r.HandleFunc("/api/users", userHandler.ListUsers).Methods("GET")
+	r.HandleFunc("/api/users/{id}", userHandler.GetUser).Methods("GET")
+	r.HandleFunc("/api/users/{id}", userHandler.UpdateUser).Methods("PUT")
+	r.HandleFunc("/api/users/{id}", userHandler.DeleteUser).Methods("DELETE")
+
+	// Dashboard API endpoints
+	r.HandleFunc("/api/dashboard/metrics", userHandler.GetDashboardMetrics).Methods("GET")
+	r.HandleFunc("/api/dashboard/bot-stats", userHandler.GetBotStats).Methods("GET")
+	r.HandleFunc("/api/dashboard/positions", userHandler.GetPositions).Methods("GET")
 
 	return r
 }

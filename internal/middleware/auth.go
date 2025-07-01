@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"trade/internal/auth"
@@ -10,26 +9,61 @@ import (
 
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("Authorization")
-		if token == "" {
-			http.Error(w, "Missing authorization header", http.StatusUnauthorized)
+		// Skip auth for login routes
+		if r.URL.Path == "/login" ||
+			r.URL.Path == "/api/login" ||
+			r.URL.Path == "/logout" ||
+			r.URL.Path == "/api/logout" ||
+			strings.HasPrefix(r.URL.Path, "/static/") {
+			next.ServeHTTP(w, r)
 			return
 		}
 
-		if strings.HasPrefix(token, "Bearer ") {
-			token = strings.TrimPrefix(token, "Bearer ")
+		var token string
+		isAPIRoute := strings.HasPrefix(r.URL.Path, "/api/")
+
+		// Try to get token from Authorization header first (for API calls)
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" {
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				token = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+		} else {
+			// Try to get token from cookie (for web page navigation)
+			cookie, err := r.Cookie("auth_token")
+			if err == nil {
+				token = cookie.Value
+			}
+		}
+
+		if token == "" {
+			if isAPIRoute {
+				http.Error(w, "Missing authorization header", http.StatusUnauthorized)
+			} else {
+				// Redirect ALL web pages to login
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+			}
+			return
 		}
 
 		userID, _, err := auth.ValidateJWT(token)
 		if err != nil {
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			if isAPIRoute {
+				http.Error(w, "Invalid token", http.StatusUnauthorized)
+			} else {
+				// Clear invalid cookie and redirect to login
+				http.SetCookie(w, &http.Cookie{
+					Name:   "auth_token",
+					Value:  "",
+					MaxAge: -1,
+					Path:   "/",
+				})
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+			}
 			return
 		}
-		fmt.Printf("DEBUG: Setting userID %d in context\n", userID) // Add this line
 
 		ctx := context.WithValue(r.Context(), "userID", userID)
-		r = r.WithContext(ctx)
-
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

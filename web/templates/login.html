@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Login</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>{{.Title}}</h1>
+        </header>
+        
+        <main>
+            <div class="welcome-card">
+                <h2>Welcome Back!</h2>
+                <p>Please sign in to your account</p>
+                
+                <form id="loginForm">
+                    <div style="margin-bottom: 20px;">
+                        <label for="email" style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">Email Address</label>
+                        <input type="email" id="email" name="email" required 
+                               style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 6px; font-size: 1rem; box-sizing: border-box;">
+                    </div>
+    
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const loginBtn = document.getElementById('loginBtn');
+            const errorMessage = document.getElementById('errorMessage');
+            const successMessage = document.getElementById('successMessage');
+            
+            // Hide previous messages
+            errorMessage.style.display = 'none';
+            successMessage.style.display = 'none';
+            
+            // Disable button and show loading
+            loginBtn.textContent = 'Signing in...';
+            loginBtn.disabled = true;
+            
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Store JWT token
+                    localStorage.setItem('authToken', data.token);
+                    
+                    // Show success message
+                    successMessage.textContent = 'Login successful! Redirecting...';
+                    successMessage.style.display = 'block';
+                    
+                    // Redirect to dashboard/profile
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 1500);
+                } else {
+                    // Show error message
+                    errorMessage.textContent = data.message || 'Login failed. Please check your credentials.';
+                    errorMessage.style.display = 'block';
+                }
+            } catch (error) {
+                errorMessage.textContent = 'Network error. Please try again.';
+                errorMessage.style.display = 'block';
+            } finally {
+                // Re-enable button
+                loginBtn.textContent = 'Sign In';
+                loginBtn.disabled = false;
+            }
+        });
+    });
+    </script>
+</body>
+</html>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <label for="password" style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">Password</label>
+                        <input type="password" id="password" name="password" required 
+                               style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 6px; font-size: 1rem; box-sizing: border-box;">
+                    </div>
+                    
+                    <button type="submit" id="loginBtn" class="api-test" style="width: 100%; margin-top: 10px;">
+                        Sign In
+                    </button>
+                </form>
+                
+                <div id="errorMessage" style="background: #fee; color: #c33; padding: 12px; border-radius: 6px; border-left: 4px solid #e74c3c; margin-top: 15px; display: none;"></div>
+                
+                <div id="successMessage" style="background: #efe; color: #363; padding: 12px; border-radius: 6px; border-left: 4px solid #27ae60; margin-top: 15px; display: none;"></div>
+                
+                <div style="text-align: center; margin-top: 20px; color: #666;">
+                    Don't have an account? <a href="/register" style="color: #667eea; text-decoration: none; font-weight: 500;">Sign up here</a>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <p>Trading Dashboard Server v1.0</p>
+        </footer>
+    </div>
