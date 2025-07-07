@@ -10,3 +10,21 @@ type APIResponse struct {
 	Status  string `json:"status"`
 	Data    any    `json:"data,omitempty"`
 }
+
+type BotStatus string
+
+const (
+	BotStatusStopped BotStatus = "STOPPED"
+	BotStatusRunning BotStatus = "RUNNING"
+	BotStatusPaused  BotStatus = "PAUSED"
+	BotStatusError   BotStatus = "ERROR"
+)
+
+func (s BotStatus) IsValid() bool {
+	switch s {
+	case BotStatusStopped, BotStatusRunning, BotStatusPaused, BotStatusError:
+		return true
+	default:
+		return false
+	}
+}

@@ -8,6 +8,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Bot struct {
+	ID             int32              `json:"id"`
+	UserID         int32              `json:"user_id"`
+	Name           string             `json:"name"`
+	Strategy       string             `json:"strategy"`
+	Status         pgtype.Text        `json:"status"`
+	WinRate        pgtype.Numeric     `json:"win_rate"`
+	ProfitFactor   pgtype.Numeric     `json:"profit_factor"`
+	Trades         pgtype.Int4        `json:"trades"`
+	InitialHolding pgtype.Numeric     `json:"initial_holding"`
+	Holding        pgtype.Numeric     `json:"holding"`
+	Pnl            pgtype.Numeric     `json:"pnl"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type User struct {
 	ID           int32              `json:"id"`
 	Name         string             `json:"name"`

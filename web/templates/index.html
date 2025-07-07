@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}}</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <div class="dashboard-container">
@@ -37,8 +37,12 @@
         </div>
         
         <!-- Bot Status and Stats Table -->
+
         <div class="table-container">
-            <h2>BOT STATUS AND STATS TABLE</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>BOT STATUS AND STATS TABLE</h2>
+                <button id="createBotBtn" class="create-bot-btn">+ Create Bot</button>
+            </div>
             <table class="data-table">
                 <thead>
                     <tr>
@@ -51,22 +55,7 @@
                     </tr>
                 </thead>
                 <tbody id="botStatsTable">
-                    <tr>
-                        <td>Alpha1</td>
-                        <td><span class="status-badge running">RUNNING</span></td>
-                        <td>52%</td>
-                        <td>2.6</td>
-                        <td>340</td>
-                        <td class="positive">$5000</td>
-                    </tr>
-                    <tr>
-                        <td>Beta2</td>
-                        <td><span class="status-badge stopped">STOPPED</span></td>
-                        <td>49%</td>
-                        <td>2.1</td>
-                        <td>200</td>
-                        <td class="negative">-$300</td>
-                    </tr>
+
                 </tbody>
             </table>
         </div>
@@ -119,206 +108,40 @@
         </div>
         
         <footer>
-            <p>Trading Dashboard Server v1.0</p>
+            <p>Trading Dashboard Server v0.1</p>
         </footer>
+
+        <!-- Create Bot Modal -->
+        <div id="createBotModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Create New Bot</h3>
+                    <span class="modal-close" id="closeBotModal">&times;</span>
+                </div>
+                <form id="createBotForm">
+                    <div class="form-group">
+                        <label for="botName">Bot Name *</label>
+                        <input type="text" id="botName" name="botName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="botStrategy">Strategy *</label>
+                        <input type="text" id="botStrategy" name="botStrategy" required placeholder="e.g., RSI, Moving Average, MACD">
+                    </div>
+                    <div class="form-group">
+                        <label for="initialHolding">Initial Holding ($)</label>
+                        <input type="number" id="initialHolding" name="initialHolding" step="0.01" min="0" placeholder="0.00">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" id="cancelBotBtn" class="btn-secondary">Cancel</button>
+                        <button type="submit" id="submitBotBtn" class="btn-primary">Create Bot</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
+
+        <script src="static/js/common.js"></script>
+        <script src="static/js/dashboard.js"></script>
     
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const token = localStorage.getItem('authToken');
-        
-        // Load dashboard data
-        loadDashboardData();
-        
-        // Set up event listeners
-        setupEventListeners();
-        
-        // Refresh data every 30 seconds
-        setInterval(loadDashboardData, 30000);
-        
-        function loadDashboardData() {
-            // Load dashboard metrics
-            loadMetrics();
-            // Load bot stats
-            loadBotStats();
-            // Load positions
-            loadPositions();
-        }
-        
-        function loadMetrics() {
-            // Fetch real metrics from API
-            const headers = {};
-            const token = localStorage.getItem('authToken');
-            if (token) {
-                headers['Authorization'] = 'Bearer ' + token;
-            }
-            
-            fetch('/api/dashboard/metrics', { headers })
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('totalPnl').textContent = `$${Math.abs(data.total_pnl).toLocaleString()}`;
-                    document.getElementById('totalPnl').className = data.total_pnl >= 0 ? 'metric-value positive' : 'metric-value negative';
-                    
-                    document.getElementById('annualizedRoi').textContent = `${data.annualized_roi}%`;
-                    document.getElementById('maxDrawdown').textContent = `${data.max_drawdown}%`;
-                    document.getElementById('uptime').textContent = `${data.uptime}%`;
-                })
-                .catch(error => console.error('Error loading metrics:', error));
-        }
-        
-        function loadBotStats() {
-            // Fetch bot stats from API
-            const headers = {};
-            const token = localStorage.getItem('authToken');
-            if (token) {
-                headers['Authorization'] = 'Bearer ' + token;
-            }
-            
-            fetch('/api/dashboard/bot-stats', { headers })
-                .then(response => response.json())
-                .then(data => {
-                    const tbody = document.getElementById('botStatsTable');
-                    tbody.innerHTML = '';
-                    
-                    data.forEach(bot => {
-                        const row = document.createElement('tr');
-                        row.innerHTML = `
-                            <td>${bot.bot_name}</td>
-                            <td><span class="status-badge ${bot.status.toLowerCase()}">${bot.status}</span></td>
-                            <td>${bot.win_rate}%</td>
-                            <td>${bot.profit_factor}</td>
-                            <td>${bot.trades}</td>
-                            <td class="${bot.pnl >= 0 ? 'positive' : 'negative'}">
-                                ${bot.pnl >= 0 ? '$' : '-$'}${Math.abs(bot.pnl).toLocaleString()}
-                            </td>
-                        `;
-                        tbody.appendChild(row);
-                    });
-                })
-                .catch(error => console.error('Error loading bot stats:', error));
-        }
-        
-        function loadPositions() {
-            // Fetch positions from API
-            const headers = {};
-            const token = localStorage.getItem('authToken');
-            if (token) {
-                headers['Authorization'] = 'Bearer ' + token;
-            }
-            
-            fetch('/api/dashboard/positions', { headers })
-                .then(response => response.json())
-                .then(data => {
-                    const tbody = document.getElementById('positionsTable');
-                    tbody.innerHTML = '';
-                    
-                    data.forEach(position => {
-                        const row = document.createElement('tr');
-                        row.innerHTML = `
-                            <td>${position.trade_id}</td>
-                            <td>${position.bot}</td>
-                            <td><span class="position-badge ${position.position.toLowerCase()}">${position.position}</span></td>
-                            <td>$${parseFloat(position.entry).toLocaleString()}</td>
-                            <td>$${parseFloat(position.current).toLocaleString()}</td>
-                            <td class="${position.pnl >= 0 ? 'positive' : 'negative'}">
-                                ${position.pnl >= 0 ? '$' : '-$'}${Math.abs(position.pnl).toLocaleString()}
-                            </td>
-                            <td>${position.time}</td>
-                        `;
-                        tbody.appendChild(row);
-                    });
-                    
-                    // Add ellipsis row if there are positions
-                    if (data.length > 0) {
-                        const ellipsisRow = document.createElement('tr');
-                        ellipsisRow.innerHTML = '<td colspan="7" style="text-align: center; color: #666; padding: 20px;">...</td>';
-                        tbody.appendChild(ellipsisRow);
-                    }
-                })
-                .catch(error => console.error('Error loading positions:', error));
-        }
-        
-        function setupEventListeners() {
-            // Logout functionality
-            document.getElementById('logoutBtn').addEventListener('click', function() {
-                localStorage.removeItem('authToken');
-                window.location.href = '/logout';
-            });
-            
-            // Debug API test
-            const testApiBtn = document.getElementById('testApiBtn');
-            const apiResponse = document.getElementById('apiResponse');
-            
-            testApiBtn.addEventListener('click', async function() {
-                try {
-                    testApiBtn.textContent = 'Testing...';
-                    testApiBtn.disabled = true;
-                    
-                    const headers = {};
-                    if (token) {
-                        headers['Authorization'] = 'Bearer ' + token;
-                    }
-                    
-                    const response = await fetch('/api/hello', {
-                        headers: headers
-                    });
-                    const data = await response.json();
-                    
-                    apiResponse.innerHTML = `<strong>API Response:</strong><br>${JSON.stringify(data, null, 2)}`;
-                    apiResponse.style.display = 'block';
-                    
-                } catch (error) {
-                    apiResponse.innerHTML = `<strong>Error:</strong><br>${error.message}`;
-                    apiResponse.style.display = 'block';
-                } finally {
-                    testApiBtn.textContent = 'Test API Endpoint';
-                    testApiBtn.disabled = false;
-                }
-            });
-            
-            // Profile button
-            const profileBtn = document.getElementById('profileBtn');
-            const profileResponse = document.getElementById('profileResponse');
-            
-            profileBtn.addEventListener('click', async function() {
-                try {
-                    profileBtn.textContent = 'Loading...';
-                    profileBtn.disabled = true;
-                    
-                    const headers = {};
-                    if (token) {
-                        headers['Authorization'] = 'Bearer ' + token;
-                    }
-                    
-                    const response = await fetch('/api/profile', {
-                        headers: headers
-                    });
-                    
-                    if (response.ok) {
-                        const userData = await response.json();
-                        profileResponse.innerHTML = `
-                            <strong>Your Profile:</strong><br>
-                            <strong>ID:</strong> ${userData.id}<br>
-                            <strong>Name:</strong> ${userData.name}<br>
-                            <strong>Email:</strong> ${userData.email}<br>
-                            <strong>Created:</strong> ${new Date(userData.created_at).toLocaleDateString()}
-                        `;
-                        profileResponse.style.display = 'block';
-                    } else {
-                        profileResponse.innerHTML = '<strong>Error:</strong><br>Failed to load profile';
-                        profileResponse.style.display = 'block';
-                    }
-                    
-                } catch (error) {
-                    profileResponse.innerHTML = `<strong>Error:</strong><br>${error.message}`;
-                    profileResponse.style.display = 'block';
-                } finally {
-                    profileBtn.textContent = 'View Profile';
-                    profileBtn.disabled = false;
-                }
-            });
-        }
-    });
-    </script>
 </body>
 </html>

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"trade/internal/auth"
 	"trade/internal/database"
@@ -15,6 +16,9 @@ import (
 	"trade/internal/models"
 
 	"github.com/gorilla/mux"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
 
 type UserHandlers struct {
@@ -369,32 +373,64 @@ func (h UserHandlers) GetDashboardMetrics(w http.ResponseWriter, r *http.Request
 }
 
 func (h UserHandlers) GetBotStats(w http.ResponseWriter, r *http.Request) {
-	// Mock bot statistics
-	botStats := []map[string]interface{}{
-		{
-			"bot_name":      "Alpha1",
-			"status":        "RUNNING",
-			"win_rate":      52,
-			"profit_factor": 2.6,
-			"trades":        340,
-			"pnl":           5000,
-		},
-		{
-			"bot_name":      "Beta2",
-			"status":        "STOPPED",
-			"win_rate":      49,
-			"profit_factor": 2.1,
-			"trades":        200,
-			"pnl":           -300,
-		},
-		{
-			"bot_name":      "Gamma3",
-			"status":        "RUNNING",
-			"win_rate":      58,
-			"profit_factor": 3.1,
-			"trades":        150,
-			"pnl":           2500,
-		},
+	type Stats struct {
+		Name         string  `json:"name"`
+		Status       string  `json:"status"`
+		WinRate      float64 `json:"win_rate"`
+		ProfitFactor float64 `json:"profit_factor"`
+		Trades       int32   `json:"trades"`
+		Pnl          float64 `json:"pnl"`
+	}
+
+	ctx := r.Context()
+	userID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	bots, err := h.db.Queries.GetUserBots(ctx, userID)
+	if err != nil {
+		http.Error(w, "Error getting bots from DB", http.StatusInternalServerError)
+		return
+	}
+
+	botStats := []Stats{}
+	for _, bot := range bots {
+		winRate, err := bot.WinRate.Float64Value()
+		if err != nil {
+			http.Error(w, "Error handling bot winrate data", http.StatusInternalServerError)
+			return
+		}
+
+		profitFactor, err := bot.ProfitFactor.Float64Value()
+		if err != nil {
+			http.Error(w, "Error handling bot profitFactor data", http.StatusInternalServerError)
+			return
+		}
+
+		holding, err := bot.Holding.Float64Value()
+		if err != nil {
+			http.Error(w, "Error handling bot holding data", http.StatusInternalServerError)
+			return
+		}
+
+		initialHolding, err := bot.InitialHolding.Float64Value()
+		if err != nil {
+			http.Error(w, "Error handling bot initial_holding data", http.StatusInternalServerError)
+			return
+
+		}
+
+		data := Stats{
+			Name:         bot.Name,
+			Status:       bot.Status.String,
+			WinRate:      winRate.Float64,
+			ProfitFactor: profitFactor.Float64,
+			Trades:       bot.Trades.Int32,
+			Pnl:          holding.Float64 - initialHolding.Float64,
+		}
+		botStats = append(botStats, data)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -403,7 +439,7 @@ func (h UserHandlers) GetBotStats(w http.ResponseWriter, r *http.Request) {
 
 func (h UserHandlers) GetPositions(w http.ResponseWriter, r *http.Request) {
 	// Mock open positions
-	positions := []map[string]interface{}{
+	positions := []map[string]any{
 		{
 			"trade_id": "#25678",
 			"bot":      "Alpha1",
@@ -438,6 +474,176 @@ func (h UserHandlers) GetPositions(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(positions)
+}
+
+func (h *UserHandlers) CreateBot(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req struct {
+		Name           string          `json:"name"`
+		Strategy       string          `json:"strategy"`
+		InitialHolding decimal.Decimal `json:"initial_holding"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	UserID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	if req.Name == "" || req.Strategy == "" {
+		http.Error(w, "Name and Strategy are required", http.StatusBadRequest)
+		return
+	}
+
+	initialHolding, err := decimalToPgNumeric(req.InitialHolding)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("%v", err), http.StatusInternalServerError)
+		return
+	}
+
+	params := db.CreateBotParams{
+		UserID:         UserID,
+		Name:           req.Name,
+		Strategy:       req.Strategy,
+		InitialHolding: initialHolding,
+	}
+
+	res, err := h.db.Queries.CreateBot(ctx, params)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") {
+			http.Error(w, "Bot name already exists", http.StatusConflict)
+			return
+		}
+		http.Error(w, "Failed to create bot", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
+
+func (h UserHandlers) GetUserBots(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	userID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	bots, err := h.db.Queries.GetUserBots(ctx, userID)
+	if err != nil {
+		http.Error(w, "Error getting bots from DB", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(bots)
+}
+
+func (h UserHandlers) UpdateBotStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	vars := mux.Vars(r)
+	idStr := vars["botID"]
+
+	botID, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid bot ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Status string `json:"status"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	status := models.BotStatus(req.Status)
+	if !status.IsValid() {
+		http.Error(w, "Invalid status. Must be STOPPED, RUNNING, PAUSED, or ERROR", http.StatusBadRequest)
+		return
+	}
+	pgtextStatus := pgtype.Text{String: string(status), Valid: true}
+
+	userID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	params := db.UpdateBotStatusParams{
+		ID:     int32(botID),
+		UserID: userID,
+		Status: pgtextStatus,
+	}
+
+	bot, err := h.db.Queries.UpdateBotStatus(ctx, params)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "Bot not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to update bot status", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(bot)
+}
+
+func (h UserHandlers) DeleteBot(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	vars := mux.Vars(r)
+	idStr := vars["botID"]
+
+	botID, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid bot ID", http.StatusBadRequest)
+		return
+	}
+
+	userID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	params := db.DeleteBotParams{
+		ID:     int32(botID),
+		UserID: userID,
+	}
+
+	err = h.db.Queries.DeleteBot(ctx, params)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "Bot not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Error deleting bot", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func decimalToPgNumeric(d decimal.Decimal) (pgtype.Numeric, error) {
+	var pgNum pgtype.Numeric
+	err := pgNum.Scan(d.String())
+	if err != nil {
+		return pgtype.Numeric{}, fmt.Errorf("error converting decimal to numeric: %v", err)
+	}
+	return pgNum, nil
 }
 
 func SetupRoutes(db *database.Database) *mux.Router {
@@ -476,6 +682,12 @@ func SetupRoutes(db *database.Database) *mux.Router {
 	r.HandleFunc("/api/dashboard/metrics", userHandler.GetDashboardMetrics).Methods("GET")
 	r.HandleFunc("/api/dashboard/bot-stats", userHandler.GetBotStats).Methods("GET")
 	r.HandleFunc("/api/dashboard/positions", userHandler.GetPositions).Methods("GET")
+
+	// Bot api endpoints
+	r.HandleFunc("/api/bots", userHandler.CreateBot).Methods("POST")
+	r.HandleFunc("/api/bots", userHandler.GetUserBots).Methods("GET")
+	r.HandleFunc("/api/bots/{botID}/status", userHandler.UpdateBotStatus).Methods("PUT")
+	r.HandleFunc("/api/bots/{botID}", userHandler.DeleteBot).Methods("DELETE")
 
 	return r
 }

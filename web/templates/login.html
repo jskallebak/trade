@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}} - Login</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <div class="container">
@@ -24,66 +24,11 @@
                                style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 6px; font-size: 1rem; box-sizing: border-box;">
                     </div>
     
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        document.getElementById('loginForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const loginBtn = document.getElementById('loginBtn');
-            const errorMessage = document.getElementById('errorMessage');
-            const successMessage = document.getElementById('successMessage');
-            
-            // Hide previous messages
-            errorMessage.style.display = 'none';
-            successMessage.style.display = 'none';
-            
-            // Disable button and show loading
-            loginBtn.textContent = 'Signing in...';
-            loginBtn.disabled = true;
-            
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
-            
-            try {
-                const response = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ email, password })
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    // Store JWT token
-                    localStorage.setItem('authToken', data.token);
-                    
-                    // Show success message
-                    successMessage.textContent = 'Login successful! Redirecting...';
-                    successMessage.style.display = 'block';
-                    
-                    // Redirect to dashboard/profile
-                    setTimeout(() => {
-                        window.location.href = '/';
-                    }, 1500);
-                } else {
-                    // Show error message
-                    errorMessage.textContent = data.message || 'Login failed. Please check your credentials.';
-                    errorMessage.style.display = 'block';
-                }
-            } catch (error) {
-                errorMessage.textContent = 'Network error. Please try again.';
-                errorMessage.style.display = 'block';
-            } finally {
-                // Re-enable button
-                loginBtn.textContent = 'Sign In';
-                loginBtn.disabled = false;
-            }
-        });
-    });
-    </script>
-</body>
+    </body>
+
+    <!-- Load scripts at the end of body -->
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/login.js"></script>
 </html>
                     
                     <div style="margin-bottom: 20px;">
