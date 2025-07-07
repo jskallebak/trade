@@ -138,6 +138,73 @@
                 </form>
             </div>
         </div>
+        <!-- Bot Details Modal -->
+        <div id="botDetailsModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Bot Details</h3>
+                    <span class="modal-close" id="closeBotDetailsModal">&times;</span>
+                </div>
+                
+                <!-- Bot Status Section -->
+                <div class="bot-status-section">
+                    <div class="status-display">
+                        <span>Status: </span>
+                        <span id="botCurrentStatus" class="status-badge">STOPPED</span>
+                    </div>
+                    <div class="status-controls">
+                        <button id="startBotBtn" class="btn-success">Start Bot</button>
+                        <button id="stopBotBtn" class="btn-danger">Stop Bot</button>
+                        <button id="pauseBotBtn" class="btn-warning">Pause Bot</button>
+                    </div>
+                </div>
+
+                <!-- Bot Edit Form -->
+                <form id="editBotForm">
+                    <div class="form-group">
+                        <label for="editBotName">Bot Name *</label>
+                        <input type="text" id="editBotName" name="editBotName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editBotStrategy">Strategy *</label>
+                        <input type="text" id="editBotStrategy" name="editBotStrategy" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editInitialHolding">Initial Holding ($)</label>
+                        <input type="number" id="editInitialHolding" name="editInitialHolding" step="0.01" min="0">
+                    </div>
+                    
+                    <!-- Read-only stats -->
+                    <div class="bot-stats-section">
+                        <h4>Performance Stats</h4>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <label>Win Rate:</label>
+                                <span id="displayWinRate">0%</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Profit Factor:</label>
+                                <span id="displayProfitFactor">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>Total Trades:</label>
+                                <span id="displayTrades">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>P&L:</label>
+                                <span id="displayPnL">$0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" id="cancelEditBtn" class="btn-secondary">Cancel</button>
+                        <button type="submit" id="saveChangesBtn" class="btn-primary">Save Changes</button>
+                        <button type="button" id="deleteBotBtn" class="btn-danger">Delete Bot</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 
         <script src="static/js/common.js"></script>

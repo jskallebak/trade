@@ -19,7 +19,6 @@ type Bot struct {
 	Trades         pgtype.Int4        `json:"trades"`
 	InitialHolding pgtype.Numeric     `json:"initial_holding"`
 	Holding        pgtype.Numeric     `json:"holding"`
-	Pnl            pgtype.Numeric     `json:"pnl"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }

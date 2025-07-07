@@ -24,29 +24,14 @@ type CreateBotParams struct {
 	InitialHolding pgtype.Numeric `json:"initial_holding"`
 }
 
-type CreateBotRow struct {
-	ID             int32              `json:"id"`
-	UserID         int32              `json:"user_id"`
-	Name           string             `json:"name"`
-	Strategy       string             `json:"strategy"`
-	Status         pgtype. Text        `json:"status"`
-	WinRate        pgtype.Numeric     `json:"win_rate"`
-	ProfitFactor   pgtype.Numeric     `json:"profit_factor"`
-	Trades         pgtype.Int4        `json:"trades"`
-	InitialHolding pgtype.Numeric     `json:"initial_holding"`
-	Holding        pgtype.Numeric     `json:"holding"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) CreateBot(ctx context.Context, arg CreateBotParams) (CreateBotRow, error) {
+func (q *Queries) CreateBot(ctx context.Context, arg CreateBotParams) (Bot, error) {
 	row := q.db.QueryRow(ctx, createBot,
 		arg.UserID,
 		arg.Name,
 		arg.Strategy,
 		arg.InitialHolding,
 	)
-	var i CreateBotRow
+	var i Bot
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -90,24 +75,9 @@ type GetBotParams struct {
 	UserID int32 `json:"user_id"`
 }
 
-type GetBotRow struct {
-	ID             int32              `json:"id"`
-	UserID         int32              `json:"user_id"`
-	Name           string             `json:"name"`
-	Strategy       string             `json:"strategy"`
-	Status         pgtype.Text        `json:"status"`
-	WinRate        pgtype.Numeric     `json:"win_rate"`
-	ProfitFactor   pgtype.Numeric     `json:"profit_factor"`
-	Trades         pgtype.Int4        `json:"trades"`
-	InitialHolding pgtype.Numeric     `json:"initial_holding"`
-	Holding        pgtype.Numeric     `json:"holding"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) GetBot(ctx context.Context, arg GetBotParams) (GetBotRow, error) {
+func (q *Queries) GetBot(ctx context.Context, arg GetBotParams) (Bot, error) {
 	row := q.db.QueryRow(ctx, getBot, arg.ID, arg.UserID)
-	var i GetBotRow
+	var i Bot
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -131,30 +101,15 @@ FROM bots
 WHERE user_id = $1
 `
 
-type GetUserBotsRow struct {
-	ID             int32              `json:"id"`
-	UserID         int32              `json:"user_id"`
-	Name           string             `json:"name"`
-	Strategy       string             `json:"strategy"`
-	Status         pgtype.Text        `json:"status"`
-	WinRate        pgtype.Numeric     `json:"win_rate"`
-	ProfitFactor   pgtype.Numeric     `json:"profit_factor"`
-	Trades         pgtype.Int4        `json:"trades"`
-	InitialHolding pgtype.Numeric     `json:"initial_holding"`
-	Holding        pgtype.Numeric     `json:"holding"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) GetUserBots(ctx context.Context, userID int32) ([]GetUserBotsRow, error) {
+func (q *Queries) GetUserBots(ctx context.Context, userID int32) ([]Bot, error) {
 	rows, err := q.db.Query(ctx, getUserBots, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetUserBotsRow
+	var items []Bot
 	for rows.Next() {
-		var i GetUserBotsRow
+		var i Bot
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
@@ -179,6 +134,51 @@ func (q *Queries) GetUserBots(ctx context.Context, userID int32) ([]GetUserBotsR
 	return items, nil
 }
 
+const updateBot = `-- name: UpdateBot :one
+UPDATE bots
+SET
+    name = $3,
+    strategy = $4,
+    initial_holding = $5,
+    updated_at = NOW()
+WHERE id = $1 AND user_id = $2
+RETURNING id, user_id, name, strategy, status, win_rate, profit_factor, trades, initial_holding, holding, created_at, updated_at
+`
+
+type UpdateBotParams struct {
+	ID             int32          `json:"id"`
+	UserID         int32          `json:"user_id"`
+	Name           string         `json:"name"`
+	Strategy       string         `json:"strategy"`
+	InitialHolding pgtype.Numeric `json:"initial_holding"`
+}
+
+func (q *Queries) UpdateBot(ctx context.Context, arg UpdateBotParams) (Bot, error) {
+	row := q.db.QueryRow(ctx, updateBot,
+		arg.ID,
+		arg.UserID,
+		arg.Name,
+		arg.Strategy,
+		arg.InitialHolding,
+	)
+	var i Bot
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Strategy,
+		&i.Status,
+		&i.WinRate,
+		&i.ProfitFactor,
+		&i.Trades,
+		&i.InitialHolding,
+		&i.Holding,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateBotStatus = `-- name: UpdateBotStatus :one
 UPDATE bots
 SET 
@@ -194,24 +194,9 @@ type UpdateBotStatusParams struct {
 	Status pgtype.Text `json:"status"`
 }
 
-type UpdateBotStatusRow struct {
-	ID             int32              `json:"id"`
-	UserID         int32              `json:"user_id"`
-	Name           string             `json:"name"`
-	Strategy       string             `json:"strategy"`
-	Status         pgtype.Text        `json:"status"`
-	WinRate        pgtype.Numeric     `json:"win_rate"`
-	ProfitFactor   pgtype.Numeric     `json:"profit_factor"`
-	Trades         pgtype.Int4        `json:"trades"`
-	InitialHolding pgtype.Numeric     `json:"initial_holding"`
-	Holding        pgtype.Numeric     `json:"holding"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) UpdateBotStatus(ctx context.Context, arg UpdateBotStatusParams) (UpdateBotStatusRow, error) {
+func (q *Queries) UpdateBotStatus(ctx context.Context, arg UpdateBotStatusParams) (Bot, error) {
 	row := q.db.QueryRow(ctx, updateBotStatus, arg.ID, arg.UserID, arg.Status)
-	var i UpdateBotStatusRow
+	var i Bot
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,

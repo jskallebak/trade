@@ -24,3 +24,14 @@ RETURNING id, user_id, name, strategy, status, win_rate, profit_factor, trades, 
 -- name: DeleteBot :exec
 DELETE FROM bots
 WHERE id = $1 AND user_id = $2;
+
+-- name: UpdateBot :one
+UPDATE bots
+SET
+    name = $3,
+    strategy = $4,
+    initial_holding = $5,
+    updated_at = NOW()
+WHERE id = $1 AND user_id = $2
+RETURNING id, user_id, name, strategy, status, win_rate, profit_factor, trades, initial_holding, holding, created_at, updated_at;
+

@@ -374,12 +374,14 @@ func (h UserHandlers) GetDashboardMetrics(w http.ResponseWriter, r *http.Request
 
 func (h UserHandlers) GetBotStats(w http.ResponseWriter, r *http.Request) {
 	type Stats struct {
+		ID           int32   `json:"id"`
 		Name         string  `json:"name"`
 		Status       string  `json:"status"`
 		WinRate      float64 `json:"win_rate"`
 		ProfitFactor float64 `json:"profit_factor"`
 		Trades       int32   `json:"trades"`
 		Pnl          float64 `json:"pnl"`
+		Strategy     string  `json:"strategy"`
 	}
 
 	ctx := r.Context()
@@ -423,18 +425,82 @@ func (h UserHandlers) GetBotStats(w http.ResponseWriter, r *http.Request) {
 		}
 
 		data := Stats{
+			ID:           bot.ID,
 			Name:         bot.Name,
 			Status:       bot.Status.String,
 			WinRate:      winRate.Float64,
 			ProfitFactor: profitFactor.Float64,
 			Trades:       bot.Trades.Int32,
 			Pnl:          holding.Float64 - initialHolding.Float64,
+			Strategy:     bot.Strategy,
 		}
 		botStats = append(botStats, data)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(botStats)
+}
+
+func (h *UserHandlers) UpdateBot(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	userID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	botIDStr := vars["botID"]
+
+	botID, err := strconv.Atoi(botIDStr)
+	if err != nil {
+		http.Error(w, "Invalid bot ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Name           string          `json:"name"`
+		Strategy       string          `json:"strategy"`
+		InitialHolding decimal.Decimal `json:"initial_holding"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" || req.Strategy == "" {
+		http.Error(w, "Name and strategy are required", http.StatusBadRequest)
+		return
+	}
+
+	initialHolding, err := decimalToPgNumeric(req.InitialHolding)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("%v", err), http.StatusInternalServerError)
+		return
+	}
+
+	params := db.UpdateBotParams{
+		ID:             int32(botID),
+		UserID:         userID,
+		Name:           req.Name,
+		Strategy:       req.Strategy,
+		InitialHolding: initialHolding,
+	}
+
+	bot, err := h.db.Queries.UpdateBot(ctx, params)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "Bot not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to update bot status", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(bot)
 }
 
 func (h UserHandlers) GetPositions(w http.ResponseWriter, r *http.Request) {
@@ -688,6 +754,7 @@ func SetupRoutes(db *database.Database) *mux.Router {
 	r.HandleFunc("/api/bots", userHandler.GetUserBots).Methods("GET")
 	r.HandleFunc("/api/bots/{botID}/status", userHandler.UpdateBotStatus).Methods("PUT")
 	r.HandleFunc("/api/bots/{botID}", userHandler.DeleteBot).Methods("DELETE")
+	r.HandleFunc("/api/bots/{botID}", userHandler.UpdateBot).Methods("PUT")
 
 	return r
 }

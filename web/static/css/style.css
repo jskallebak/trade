@@ -13,6 +13,106 @@ body {
     min-height: 100vh;
 }
 
+/* Bot Details Modal Styles */
+.bot-status-section {
+    padding: 20px 24px;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.status-display {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+}
+
+.status-controls {
+    display: flex;
+    gap: 10px;
+}
+
+.btn-success {
+    background: #38a169;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-success:hover {
+    background: #2f855a;
+}
+
+.btn-danger {
+    background: #e53e3e;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-danger:hover {
+    background: #c53030;
+}
+
+.btn-warning {
+    background: #d69e2e;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-warning:hover {
+    background: #b7791f;
+}
+
+.bot-stats-section {
+    padding: 0 24px 20px 24px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.bot-stats-section h4 {
+    margin-bottom: 15px;
+    color: #2d3748;
+    font-size: 1rem;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: #f7fafc;
+    border-radius: 4px;
+}
+
+.stat-item label {
+    font-weight: 500;
+    color: #4a5568;
+    margin: 0;
+}
+
 /* Modal Styles */
 .modal {
     position: fixed;

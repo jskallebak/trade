@@ -83,6 +83,11 @@ class Dashboard {
                 ${bot.pnl >= 0 ? '$' : '-$'}${Math.abs(bot.pnl).toLocaleString()}
             </td>
         `;
+
+        row.addEventListener('click', () => {
+            this.showBotDetailsModal(bot);
+        });
+
         return row;
     }
 
@@ -203,6 +208,46 @@ class Dashboard {
             }
         });
 
+        // Bot Details Modal close events
+        document.getElementById('closeBotDetailsModal')?.addEventListener('click', () => {
+            this.hideBotDetailsModal();
+        });
+
+        document.getElementById('cancelEditBtn')?.addEventListener('click', () => {
+            this.hideBotDetailsModal();
+        });
+
+        // Close modal when clicking outside
+        document.getElementById('botDetailsModal')?.addEventListener('click', (e) => {
+            if (e.target.id === 'botDetailsModal') {
+                this.hideBotDetailsModal();
+            }
+        });
+
+                // Bot status control buttons
+        document.getElementById('startBotBtn')?.addEventListener('click', () => {
+            this.updateBotStatus('RUNNING');
+        });
+
+        document.getElementById('stopBotBtn')?.addEventListener('click', () => {
+            this.updateBotStatus('STOPPED');
+        });
+
+        document.getElementById('pauseBotBtn')?.addEventListener('click', () => {
+            this.updateBotStatus('PAUSED');
+        });
+
+        // Delete bot button
+        document.getElementById('deleteBotBtn')?.addEventListener('click', () => {
+            this.deleteBotConfirm();
+        })
+
+            // Edit bot form submission
+        document.getElementById('editBotForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveChanges();
+        });
+
         const form = document.getElementById('createBotForm');
         
         form?.addEventListener('submit', (e) => {
@@ -212,6 +257,159 @@ class Dashboard {
         });
 
 
+    }
+
+    async saveChanges() {
+        if (!this.currentBot) {
+            alert('No bot selected');
+            return;
+        }
+
+        const saveBtn = document.getElementById('saveChangesBtn');
+        const form = document.getElementById('editBotForm');
+
+        // Get form data
+        const formData = new FormData(form);
+        const updatedData = {
+            name: formData.get('editBotName').trim(),
+            strategy: formData.get('editBotStrategy').trim(),
+            initial_holding: parseFloat(formData.get('editInitialHolding')) || 0
+        };
+
+        // Validate required fields
+        if (!updatedData.name || !updatedData.strategy) {
+            alert('Bot name and strategy are required!');
+            return;
+        }
+
+        try {
+            // Show loading state
+            saveBtn.textContent = 'Saving...';
+            saveBtn.disabled = true;
+
+            // Make API call
+            const response = await this.apiCall(`/api/bots/${this.currentBot.id}`, {
+                method: 'PUT',
+                body: JSON.stringify(updatedData)
+            });
+
+            if (response.ok) {
+                const updatedBot = await response.json();
+                
+                // Update the current bot object
+                this.currentBot = updatedBot;
+                
+                // Refresh the bot table to show updated data
+                this.loadBotStats();
+                
+                console.log('Bot updated successfully');
+                
+                // Optional: Brief success feedback
+                saveBtn.textContent = 'Saved!';
+                setTimeout(() => {
+                    saveBtn.textContent = 'Save Changes';
+                }, 1000);
+                
+            } else {
+                const error = await response.text();
+                alert('Error updating bot: ' + error);
+            }
+        } catch (error) {
+            alert('Network error: ' + error.message);
+        } finally {
+            // Reset button
+            saveBtn.disabled = false;
+            setTimeout(() => {
+                if (saveBtn.textContent === 'Saving...') {
+                    saveBtn.textContent = 'Save Changes';
+                }
+            }, 1000);
+        }
+    }
+
+    deleteBotConfirm() {
+        if (!this.currentBot) {
+            alert('No bot selected');
+            return;
+        }
+
+        // Show confirmation dialog
+        const confirmed = confirm(`Are you sure you want to delete "${this.currentBot.name}"?\n\nThis action cannot be undone.`);
+        
+        if (confirmed) {
+            this.deleteBot();
+        }
+    }
+
+    async deleteBot() {
+        if (!this.currentBot) {
+            return;
+        }
+
+        const deleteBtn = document.getElementById('deleteBotBtn');
+        const botName = this.currentBot.name;
+
+        try {
+            // Show loading state
+            deleteBtn.textContent = 'Deleting...';
+            deleteBtn.disabled = true;
+
+            // Make API call
+            const response = await this.apiCall(`/api/bots/${this.currentBot.id}`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                this.currentBot = null;
+                // Success - close modal and refresh bot list
+                this.hideBotDetailsModal();
+                this.loadBotStats(); // Refresh the bot table
+                console.log(`Bot "${botName}" deleted successfully`);
+            } else {
+                const error = await response.text();
+                alert('Error deleting bot: ' + error);
+            }
+        } catch (error) {
+            alert('Network error: ' + error.message);
+        } finally {
+            // Reset button
+            deleteBtn.textContent = 'Delete Bot';
+            deleteBtn.disabled = false;
+        }
+    }
+
+    async updateBotStatus(newStatus) {
+        if (!this.currentBot) {
+            alert('No bot selected');
+            return;
+        }
+
+        try {
+            const response = await this.apiCall(`/api/bots/${this.currentBot.id}/status`, {
+                method: 'PUT',
+                body: JSON.stringify({ status: newStatus })
+            });
+
+            if (response.ok) {
+                // Update the current bot object
+                this.currentBot.status = newStatus;
+                
+                // Update the status display in the modal
+                const statusElement = document.getElementById('botCurrentStatus');
+                statusElement.textContent = newStatus;
+                statusElement.className = `status-badge ${newStatus.toLowerCase()}`;
+                
+                // Refresh the bot table to show updated status
+                this.loadBotStats();
+                
+                console.log(`Bot status updated to ${newStatus}`);
+            } else {
+                const error = await response.text();
+                alert('Error updating bot status: ' + error);
+            }
+        } catch (error) {
+            alert('Network error: ' + error.message);
+        }
     }
 
     async testApiEndpoint() {
@@ -309,6 +507,55 @@ class Dashboard {
                 element.className = className;
             }
         }
+    }
+
+    showBotDetailsModal(bot) {
+        console.log('Opening bot details for:', bot); // Debug log
+        console.log('Bot object received:', bot);  // ← Add this
+        console.log('Bot ID:', bot.id);
+        
+        const modal = document.getElementById('botDetailsModal');
+        if (!modal) {
+            console.error('Bot details modal not found!');
+            return;
+        }
+
+        // Store the current bot data for later use
+        this.currentBot = bot;
+
+        // Populate the form with current bot data
+        document.getElementById('editBotName').value = bot.name || '';
+        document.getElementById('editBotStrategy').value = bot.strategy || '';
+        document.getElementById('editInitialHolding').value = bot.initial_holding || 0;
+
+        // Update status display
+        const statusElement = document.getElementById('botCurrentStatus');
+        if (statusElement) {
+            statusElement.textContent = bot.status || 'UNKNOWN';
+            statusElement.className = `status-badge ${(bot.status || '').toLowerCase()}`;
+        }
+
+        // Update read-only stats
+        document.getElementById('displayWinRate').textContent = `${bot.win_rate || 0}%`;
+        document.getElementById('displayProfitFactor').textContent = bot.profit_factor || 0;
+        document.getElementById('displayTrades').textContent = bot.trades || 0;
+        
+        // Format P&L
+        const pnl = bot.pnl || 0;
+        const pnlElement = document.getElementById('displayPnL');
+        pnlElement.textContent = pnl >= 0 ? `$${Math.abs(pnl).toLocaleString()}` : `-$${Math.abs(pnl).toLocaleString()}`;
+        pnlElement.className = pnl >= 0 ? 'positive' : 'negative';
+
+        // Show the modal
+        modal.style.display = 'flex';
+    }
+
+    hideBotDetailsModal() {
+        const modal = document.getElementById('botDetailsModal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+        this.currentBot = null;
     }
 }
 
