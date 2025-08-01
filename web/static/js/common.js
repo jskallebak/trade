@@ -28,7 +28,7 @@ class ApiClient {
 
         try {
             const response = await fetch(this.baseUrl + url, config);
-            
+
             // Handle 401 responses by redirecting to login
             if (response.status === 401) {
                 this.handleUnauthorized();
@@ -140,7 +140,7 @@ const Utils = {
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
         toast.textContent = message;
-        
+
         // Add toast styles if not already in CSS
         Object.assign(toast.style, {
             position: 'fixed',
@@ -149,8 +149,8 @@ const Utils = {
             padding: '12px 20px',
             borderRadius: '4px',
             color: 'white',
-            backgroundColor: type === 'error' ? '#e53e3e' : 
-                           type === 'success' ? '#38a169' : '#667eea',
+            backgroundColor: type === 'error' ? '#e53e3e' :
+                type === 'success' ? '#38a169' : '#667eea',
             zIndex: '1000',
             fontSize: '14px',
             boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
@@ -202,7 +202,7 @@ const Utils = {
     // DOM helpers
     createElement(tag, attributes = {}, textContent = '') {
         const element = document.createElement(tag);
-        
+
         Object.entries(attributes).forEach(([key, value]) => {
             if (key === 'className') {
                 element.className = value;
@@ -227,7 +227,7 @@ const Utils = {
     // Error handling
     handleError(error, context = '') {
         console.error(`Error in ${context}:`, error);
-        
+
         let message = 'An unexpected error occurred';
         if (error.message) {
             message = error.message;

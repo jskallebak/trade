@@ -19,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
+	"trade/internal/binance"
 )
 
 type UserHandlers struct {
@@ -358,7 +359,7 @@ func (h UserHandlers) Logout(w http.ResponseWriter, r *http.Request) {
 // Dashboard API endpoints
 func (h UserHandlers) GetDashboardMetrics(w http.ResponseWriter, r *http.Request) {
 	// Mock dashboard metrics - in a real app, this would come from your trading system
-	metrics := map[string]interface{}{
+	metrics := map[string]any{
 		"total_pnl":      5000.00,
 		"annualized_roi": 18.5,
 		"max_drawdown":   12.3,
@@ -374,14 +375,16 @@ func (h UserHandlers) GetDashboardMetrics(w http.ResponseWriter, r *http.Request
 
 func (h UserHandlers) GetBotStats(w http.ResponseWriter, r *http.Request) {
 	type Stats struct {
-		ID           int32   `json:"id"`
-		Name         string  `json:"name"`
-		Status       string  `json:"status"`
-		WinRate      float64 `json:"win_rate"`
-		ProfitFactor float64 `json:"profit_factor"`
-		Trades       int32   `json:"trades"`
-		Pnl          float64 `json:"pnl"`
-		Strategy     string  `json:"strategy"`
+		ID               int32   `json:"id"`
+		Name             string  `json:"name"`
+		Status           string  `json:"status"`
+		WinRate          float64 `json:"win_rate"`
+		ProfitFactor     float64 `json:"profit_factor"`
+		Trades           int32   `json:"trades"`
+		Pnl              float64 `json:"pnl"`
+		Strategy         string  `json:"strategy"`
+		AccountName      string  `json:"account_name,omitempty"`
+		BinanceAccountID *int32  `json:"binance_account_id,omitempty"`
 	}
 
 	ctx := r.Context()
@@ -391,7 +394,7 @@ func (h UserHandlers) GetBotStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bots, err := h.db.Queries.GetUserBots(ctx, userID)
+	bots, err := h.db.Queries.GetUserBotsWithAccounts(ctx, userID)
 	if err != nil {
 		http.Error(w, "Error getting bots from DB", http.StatusInternalServerError)
 		return
@@ -425,14 +428,16 @@ func (h UserHandlers) GetBotStats(w http.ResponseWriter, r *http.Request) {
 		}
 
 		data := Stats{
-			ID:           bot.ID,
-			Name:         bot.Name,
-			Status:       bot.Status.String,
-			WinRate:      winRate.Float64,
-			ProfitFactor: profitFactor.Float64,
-			Trades:       bot.Trades.Int32,
-			Pnl:          holding.Float64 - initialHolding.Float64,
-			Strategy:     bot.Strategy,
+			ID:               bot.ID,
+			Name:             bot.Name,
+			Status:           bot.Status.String,
+			WinRate:          winRate.Float64,
+			ProfitFactor:     profitFactor.Float64,
+			Trades:           bot.Trades.Int32,
+			Pnl:              holding.Float64 - initialHolding.Float64,
+			Strategy:         bot.Strategy,
+			AccountName:      bot.AccountName.String,
+			BinanceAccountID: &bot.BinanceAccountID.Int32,
 		}
 		botStats = append(botStats, data)
 	}
@@ -460,9 +465,10 @@ func (h *UserHandlers) UpdateBot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name           string          `json:"name"`
-		Strategy       string          `json:"strategy"`
-		InitialHolding decimal.Decimal `json:"initial_holding"`
+		Name             string          `json:"name"`
+		Strategy         string          `json:"strategy"`
+		InitialHolding   decimal.Decimal `json:"initial_holding"`
+		BinanceAccountID *int32          `json:"binance_account_id"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -481,12 +487,48 @@ func (h *UserHandlers) UpdateBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var binanceAccountID pgtype.Int4
+	if req.BinanceAccountID != nil {
+		// Validate user owns the account
+		_, err := h.db.Queries.GetBinanceAccount(ctx, db.GetBinanceAccountParams{
+			ID:     *req.BinanceAccountID,
+			UserID: userID,
+		})
+		if err != nil {
+			http.Error(w, "Binance account not found or not owned by user", http.StatusNotFound)
+			return
+		}
+
+		// Check if account is already used by another bot (excluding current bot)
+		existingBots, err := h.db.Queries.GetUserBots(ctx, userID)
+		if err != nil {
+			http.Error(w, "Error checking existing bots", http.StatusInternalServerError)
+			return
+		}
+
+		for _, bot := range existingBots {
+			// Skip the current bot being updated
+			if bot.ID == int32(botID) {
+				continue
+			}
+			if bot.BinanceAccountID.Valid && bot.BinanceAccountID.Int32 == *req.BinanceAccountID {
+				http.Error(w, "Account already has a bot connected", http.StatusConflict)
+				return
+			}
+		}
+
+		binanceAccountID = pgtype.Int4{Int32: *req.BinanceAccountID, Valid: true}
+	} else {
+		binanceAccountID = pgtype.Int4{Valid: false} // Unlink account
+	}
+
 	params := db.UpdateBotParams{
-		ID:             int32(botID),
-		UserID:         userID,
-		Name:           req.Name,
-		Strategy:       req.Strategy,
-		InitialHolding: initialHolding,
+		ID:               int32(botID),
+		UserID:           userID,
+		Name:             req.Name,
+		Strategy:         req.Strategy,
+		InitialHolding:   initialHolding,
+		BinanceAccountID: binanceAccountID,
 	}
 
 	bot, err := h.db.Queries.UpdateBot(ctx, params)
@@ -546,9 +588,10 @@ func (h *UserHandlers) CreateBot(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var req struct {
-		Name           string          `json:"name"`
-		Strategy       string          `json:"strategy"`
-		InitialHolding decimal.Decimal `json:"initial_holding"`
+		Name             string          `json:"name"`
+		Strategy         string          `json:"strategy"`
+		InitialHolding   decimal.Decimal `json:"initial_holding"`
+		BinanceAccountID *int32          `json:"binance_account_id,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -573,11 +616,42 @@ func (h *UserHandlers) CreateBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var binanceAccountID pgtype.Int4
+	if req.BinanceAccountID != nil {
+		// Check if account is owned by user
+		_, err := h.db.Queries.GetBinanceAccount(ctx, db.GetBinanceAccountParams{
+			ID:     *req.BinanceAccountID,
+			UserID: UserID,
+		})
+		if err != nil {
+			http.Error(w, "Binance account not found or not owned by user", http.StatusNotFound)
+			return
+		}
+
+		existingBots, err := h.db.Queries.GetUserBots(ctx, UserID)
+		if err != nil {
+			http.Error(w, "Error checking existing bots", http.StatusInternalServerError)
+			return
+		}
+
+		for _, bot := range existingBots {
+			if bot.BinanceAccountID.Valid && bot.BinanceAccountID.Int32 == *req.BinanceAccountID {
+				http.Error(w, "Account already has a bot connected", http.StatusConflict)
+				return
+			}
+		}
+
+		binanceAccountID = pgtype.Int4{Int32: *req.BinanceAccountID, Valid: true}
+	} else {
+		binanceAccountID = pgtype.Int4{Valid: false}
+	}
+
 	params := db.CreateBotParams{
-		UserID:         UserID,
-		Name:           req.Name,
-		Strategy:       req.Strategy,
-		InitialHolding: initialHolding,
+		UserID:           UserID,
+		Name:             req.Name,
+		Strategy:         req.Strategy,
+		InitialHolding:   initialHolding,
+		BinanceAccountID: binanceAccountID,
 	}
 
 	res, err := h.db.Queries.CreateBot(ctx, params)
@@ -703,6 +777,254 @@ func (h UserHandlers) DeleteBot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *UserHandlers) TestBinance(w http.ResponseWriter, r *http.Request) {
+	key := os.Getenv("TEST_API_KEY")
+	secret := os.Getenv("TEST_API_SECRET")
+	client, err := binance.New(key, secret, "https://testnet.binance.vision")
+	if err != nil {
+		http.Error(w, "error creating client", http.StatusInternalServerError)
+		return
+	}
+
+	price, err := client.GetPrice("BTCUSDT")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(price)
+}
+
+func (h *UserHandlers) BinanceGetAccountInfo(w http.ResponseWriter, r *http.Request) {
+	key := os.Getenv("M_API_KEY")
+	secret := os.Getenv("M_API_SECRET")
+
+	client, err := binance.New(key, secret, "https://api.binance.com")
+	if err != nil {
+		http.Error(w, "error creating client", http.StatusInternalServerError)
+		return
+	}
+
+	acc, err := client.GetAccountInfo()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get account info: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(acc)
+}
+
+func (h *UserHandlers) GetMarginAccountInfo(w http.ResponseWriter, r *http.Request) {
+	key := os.Getenv("M_API_KEY")
+	secret := os.Getenv("M_API_SECRET")
+	client, err := binance.New(key, secret, "")
+	if err != nil {
+		http.Error(w, "Failed to create client", http.StatusInternalServerError)
+		return
+	}
+
+	marginAccount, err := client.GetMarginAccountInfo()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get margin account: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(marginAccount)
+}
+
+func (h *UserHandlers) UpdateBinanceAccount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	userID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	idStr := vars["id"]
+
+	accID, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid account ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Name    string `json:"name"`
+		BaseURL string `json:"base_url"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	getParams := db.GetBinanceAccountParams{
+		ID:     int32(accID),
+		UserID: userID,
+	}
+
+	acc, err := h.db.Queries.GetBinanceAccount(ctx, getParams)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "Account not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Error getting the account from db", http.StatusInternalServerError)
+		return
+	}
+
+	updateParams := db.UpdateBinanceAccountInfoParams{
+		ID:      int32(accID),
+		UserID:  userID,
+		Name:    acc.Name,
+		BaseUrl: acc.BaseUrl,
+	}
+
+	if req.Name != "" {
+		updateParams.Name = req.Name
+	}
+
+	if req.BaseURL != "" {
+		updateParams.BaseUrl = pgtype.Text{String: req.BaseURL, Valid: true}
+	}
+
+	updatedAcc, err := h.db.Queries.UpdateBinanceAccountInfo(ctx, updateParams)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") {
+			http.Error(w, "Account name already exists", http.StatusConflict)
+			return
+		}
+		http.Error(w, "Error updating the account in db", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(updatedAcc)
+}
+
+func (h *UserHandlers) CreateBinanceAccount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req struct {
+		Name      string `json:"name"`
+		ApiKey    string `json:"api_key"`
+		ApiSecret string `json:"api_secret"`
+		BaseURL   string `json:"base_url"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	userID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	existingAccount, err := h.db.Queries.GetInactiveBinanceAccount(ctx, db.GetInactiveBinanceAccountParams{
+		UserID: userID,
+		Name:   req.Name,
+	})
+
+	if err == nil {
+		// Account exists but is inactive - reactivate it
+		updatedAccount, err := h.db.Queries.ReactivateBinanceAccount(ctx, db.ReactivateBinanceAccountParams{
+			ID:        existingAccount.ID,
+			UserID:    userID,
+			ApiKey:    req.ApiKey,
+			ApiSecret: req.ApiSecret,
+			BaseUrl:   pgtype.Text{String: req.BaseURL, Valid: true},
+		})
+		if err != nil {
+			http.Error(w, "Failed to reactivate account", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(updatedAccount)
+		return
+	}
+
+	params := db.CreateBinanceAccountParams{
+		UserID:    userID,
+		Name:      req.Name,
+		ApiKey:    req.ApiKey,
+		ApiSecret: req.ApiSecret,
+		BaseUrl:   pgtype.Text{String: req.BaseURL, Valid: true},
+	}
+
+	acc, err := h.db.Queries.CreateBinanceAccount(ctx, params)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") {
+			http.Error(w, "Account already exists", http.StatusConflict)
+			return
+		}
+		http.Error(w, "Failed to create account", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(acc)
+}
+
+func (h *UserHandlers) GetUserBinanceAccounts(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	accs, err := h.db.Queries.GetUserBinanceAccountsWithStatus(ctx, userID)
+	if err != nil {
+		http.Error(w, "Error getting accounts", http.StatusInternalServerError)
+		return
+	}
+
+	if accs == nil {
+		accs = []db.GetUserBinanceAccountsWithStatusRow{} // Empty slice instead of nil
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(accs)
+}
+
+func (h *UserHandlers) DeleteBinanceAccount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	userID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "user ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	idStr := vars["id"]
+
+	AccID, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid account ID", http.StatusBadRequest)
+		return
+	}
+
+	params := db.DeleteBinanceAccountParams{
+		ID:     int32(AccID),
+		UserID: userID,
+	}
+
+	if err = h.db.Queries.DeleteBinanceAccount(ctx, params); err != nil {
+		http.Error(w, "Error deleting account", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func decimalToPgNumeric(d decimal.Decimal) (pgtype.Numeric, error) {
 	var pgNum pgtype.Numeric
 	err := pgNum.Scan(d.String())
@@ -756,5 +1078,13 @@ func SetupRoutes(db *database.Database) *mux.Router {
 	r.HandleFunc("/api/bots/{botID}", userHandler.DeleteBot).Methods("DELETE")
 	r.HandleFunc("/api/bots/{botID}", userHandler.UpdateBot).Methods("PUT")
 
+	// Binance endpoints
+	r.HandleFunc("/api/test-binance", userHandler.TestBinance).Methods("GET")
+	r.HandleFunc("/api/get-account-info", userHandler.BinanceGetAccountInfo).Methods("GET")
+	r.HandleFunc("/api/get-margin-account-info", userHandler.GetMarginAccountInfo).Methods("GET")
+	r.HandleFunc("/api/binance-accounts", userHandler.CreateBinanceAccount).Methods("POST")
+	r.HandleFunc("/api/binance-accounts", userHandler.GetUserBinanceAccounts).Methods("GET")
+	r.HandleFunc("/api/binance-accounts/{id}", userHandler.DeleteBinanceAccount).Methods("DELETE")
+	r.HandleFunc("/api/binance-accounts/{id}", userHandler.UpdateBinanceAccount).Methods("PUT")
 	return r
 }

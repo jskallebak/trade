@@ -48,6 +48,7 @@
                     <tr>
                         <th>Bot Name</th>
                         <th>Status</th>
+                        <th>Account</th>
                         <th>Win Rate</th>
                         <th>Profit Factor</th>
                         <th>Trades</th>
@@ -91,7 +92,26 @@
                 </tbody>
             </table>
         </div>
-        
+        <div class="table-container">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>BINANCE ACCOUNTS</h2>
+                <button id="createAccountBtn" class="create-bot-btn">+ Add Account</button>
+            </div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Account Name</th>
+                        <th>Base URL</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="binanceAccountsTable">
+                    <!-- Accounts will be loaded here -->
+                </tbody>
+            </table>
+        </div>       
         <!-- Debug Section (can be removed later) -->
         <div class="debug-section">
             <details>
@@ -103,6 +123,18 @@
                 <div class="api-test" style="margin-top: 10px;">
                     <button id="profileBtn">View Profile</button>
                     <div id="profileResponse"></div>
+                </div>
+                <div class="api-test" style="margin-top: 10px;">
+                    <button id="binanceBtn">Get Price</button>
+                    <div id="binanceResponse"></div>
+                </div>
+                <div class="api-test" style="margin-top: 10px;">
+                    <button id="accInfoBtn">Account Info</button>
+                    <div id="accInfoResponse"></div>
+                </div>
+                <div class="api-test" style="margin-top: 10px;">
+                    <button id="marginBtn">Margin Account Info</button>
+                    <div id="marginResponse"></div>
                 </div>
             </details>
         </div>
@@ -130,6 +162,14 @@
                     <div class="form-group">
                         <label for="initialHolding">Initial Holding ($)</label>
                         <input type="number" id="initialHolding" name="initialHolding" step="0.01" min="0" placeholder="0.00">
+                    </div>
+                    <!-- ADD THIS NEW FIELD -->
+                    <div class="form-group">
+                        <label for="botAccount">Binance Account (Optional)</label>
+                        <select id="botAccount" name="botAccount">
+                            <option value="">No Account</option>
+                            <!-- Will be populated with available accounts -->
+                        </select>
                     </div>
                     <div class="form-actions">
                         <button type="button" id="cancelBotBtn" class="btn-secondary">Cancel</button>
@@ -173,6 +213,14 @@
                         <label for="editInitialHolding">Initial Holding ($)</label>
                         <input type="number" id="editInitialHolding" name="editInitialHolding" step="0.01" min="0">
                     </div>
+
+                    <div class="form-group">
+                        <label for="editBotAccount">Binance Account (Optional)</label>
+                        <select id="editBotAccount" name="editBotAccount">
+                            <option value="">No Account</option>
+                            <!-- Will be populated with available accounts -->
+                        </select>
+                    </div>
                     
                     <!-- Read-only stats -->
                     <div class="bot-stats-section">
@@ -201,6 +249,60 @@
                         <button type="button" id="cancelEditBtn" class="btn-secondary">Cancel</button>
                         <button type="submit" id="saveChangesBtn" class="btn-primary">Save Changes</button>
                         <button type="button" id="deleteBotBtn" class="btn-danger">Delete Bot</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <!-- Create Binance Account Modal -->
+        <div id="createAccountModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Add Binance Account</h3>
+                    <span class="modal-close" id="closeAccountModal">&times;</span>
+                </div>
+                <form id="createAccountForm">
+                    <div class="form-group">
+                        <label for="accountName">Account Name *</label>
+                        <input type="text" id="accountName" name="accountName" required placeholder="e.g., Main Account, Testnet">
+                    </div>
+                    <div class="form-group">
+                        <label for="apiKey">API Key *</label>
+                        <input type="text" id="apiKey" name="apiKey" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="apiSecret">API Secret *</label>
+                        <input type="password" id="apiSecret" name="apiSecret" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="baseUrl">Base URL</label>
+                        <input type="text" id="baseUrl" name="baseUrl" placeholder="https://api.binance.com" value="https://api.binance.com">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" id="cancelAccountBtn" class="btn-secondary">Cancel</button>
+                        <button type="submit" id="submitAccountBtn" class="btn-primary">Add Account</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <!-- Edit Binance Account Modal -->
+        <div id="editAccountModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Edit Binance Account</h3>
+                    <span class="modal-close" id="closeEditAccountModal">&times;</span>
+                </div>
+                <form id="editAccountForm">
+                    <div class="form-group">
+                        <label for="editAccountName">Account Name *</label>
+                        <input type="text" id="editAccountName" name="editAccountName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editBaseUrl">Base URL</label>
+                        <input type="text" id="editBaseUrl" name="editBaseUrl" placeholder="https://api.binance.com">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" id="cancelEditAccountBtn" class="btn-secondary">Cancel</button>
+                        <button type="submit" id="saveAccountBtn" class="btn-primary">Save Changes</button>
                     </div>
                 </form>
             </div>

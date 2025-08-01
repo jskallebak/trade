@@ -8,19 +8,33 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type BinanceAccount struct {
+	ID            int32              `json:"id"`
+	UserID        int32              `json:"user_id"`
+	Name          string             `json:"name"`
+	ApiKey        string             `json:"api_key"`
+	ApiSecret     string             `json:"api_secret"`
+	BaseUrl       pgtype.Text        `json:"base_url"`
+	MarginEnabled pgtype.Bool        `json:"margin_enabled"`
+	IsActive      pgtype.Bool        `json:"is_active"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Bot struct {
-	ID             int32              `json:"id"`
-	UserID         int32              `json:"user_id"`
-	Name           string             `json:"name"`
-	Strategy       string             `json:"strategy"`
-	Status         pgtype.Text        `json:"status"`
-	WinRate        pgtype.Numeric     `json:"win_rate"`
-	ProfitFactor   pgtype.Numeric     `json:"profit_factor"`
-	Trades         pgtype.Int4        `json:"trades"`
-	InitialHolding pgtype.Numeric     `json:"initial_holding"`
-	Holding        pgtype.Numeric     `json:"holding"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ID               int32              `json:"id"`
+	UserID           int32              `json:"user_id"`
+	Name             string             `json:"name"`
+	Strategy         string             `json:"strategy"`
+	Status           pgtype.Text        `json:"status"`
+	WinRate          pgtype.Numeric     `json:"win_rate"`
+	ProfitFactor     pgtype.Numeric     `json:"profit_factor"`
+	Trades           pgtype.Int4        `json:"trades"`
+	InitialHolding   pgtype.Numeric     `json:"initial_holding"`
+	Holding          pgtype.Numeric     `json:"holding"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	BinanceAccountID pgtype.Int4        `json:"binance_account_id"`
 }
 
 type User struct {

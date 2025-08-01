@@ -14,14 +14,15 @@ class Dashboard {
         this.loadMetrics();
         this.loadBotStats();
         this.loadPositions();
+        this.loadBinanceAccounts();
     }
 
     async loadMetrics() {
         try {
             const response = await this.apiCall('/api/dashboard/metrics');
             const data = await response.json();
-            
-            this.updateElement('totalPnl', `$${Math.abs(data.total_pnl).toLocaleString()}`, 
+
+            this.updateElement('totalPnl', `$${Math.abs(data.total_pnl).toLocaleString()}`,
                 data.total_pnl >= 0 ? 'metric-value positive' : 'metric-value negative');
             this.updateElement('annualizedRoi', `${data.annualized_roi}%`);
             this.updateElement('maxDrawdown', `${data.max_drawdown}%`);
@@ -35,11 +36,13 @@ class Dashboard {
         try {
             const response = await this.apiCall('/api/dashboard/bot-stats');
             const data = await response.json();
-            
+            console.log('Bot stats data:', data); // Add this debug log
+
             const tbody = document.getElementById('botStatsTable');
             tbody.innerHTML = '';
-            
+
             data.forEach(bot => {
+                console.log('Bot data:', bot); // Add this too
                 const row = this.createBotStatsRow(bot);
                 tbody.appendChild(row);
             });
@@ -52,15 +55,15 @@ class Dashboard {
         try {
             const response = await this.apiCall('/api/dashboard/positions');
             const data = await response.json();
-            
+
             const tbody = document.getElementById('positionsTable');
             tbody.innerHTML = '';
-            
+
             data.forEach(position => {
                 const row = this.createPositionRow(position);
                 tbody.appendChild(row);
             });
-            
+
             if (data.length > 0) {
                 const ellipsisRow = document.createElement('tr');
                 ellipsisRow.innerHTML = '<td colspan="7" style="text-align: center; color: #666; padding: 20px;">...</td>';
@@ -71,11 +74,238 @@ class Dashboard {
         }
     }
 
+    showCreateAccountModal() {
+        const modal = document.getElementById('createAccountModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            // Clear form
+            document.getElementById('createAccountForm').reset();
+        }
+    }
+
+    hideCreateAccountModal() {
+        const modal = document.getElementById('createAccountModal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    async handleCreateAccount() {
+        const submitBtn = document.getElementById('submitAccountBtn');
+        const form = document.getElementById('createAccountForm');
+
+        // Get form data
+        const formData = new FormData(form);
+        const accountData = {
+            name: formData.get('accountName').trim(),
+            api_key: formData.get('apiKey').trim(),
+            api_secret: formData.get('apiSecret').trim(),
+            base_url: formData.get('baseUrl').trim() || 'https://api.binance.com'
+        };
+
+        // Validate required fields
+        if (!accountData.name || !accountData.api_key || !accountData.api_secret) {
+            alert('Account name, API key, and API secret are required!');
+            return;
+        }
+
+        try {
+            // Show loading state
+            submitBtn.textContent = 'Adding...';
+            submitBtn.disabled = true;
+
+            // Make API call
+            const response = await this.apiCall('/api/binance-accounts', {
+                method: 'POST',
+                body: JSON.stringify(accountData)
+            });
+
+            if (response.ok) {
+                // Success - close modal and refresh accounts list
+                this.hideCreateAccountModal();
+                this.loadBinanceAccounts(); // Refresh the accounts table
+                console.log('Account added successfully');
+            } else {
+                const error = await response.text();
+                alert('Error adding account: ' + error);
+            }
+        } catch (error) {
+            alert('Network error: ' + error.message);
+        } finally {
+            // Reset button
+            submitBtn.textContent = 'Add Account';
+            submitBtn.disabled = false;
+        }
+    }
+
+    async deleteAccount(accountId) {
+        // Show confirmation dialog
+        const confirmed = confirm('Are you sure you want to delete this Binance account?\n\nThis action cannot be undone.');
+
+        if (confirmed) {
+            try {
+                const response = await this.apiCall(`/api/binance-accounts/${accountId}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    this.loadBinanceAccounts(); // Refresh the accounts table
+                    console.log('Account deleted successfully');
+                } else {
+                    const error = await response.text();
+                    alert('Error deleting account: ' + error);
+                }
+            } catch (error) {
+                alert('Network error: ' + error.message);
+            }
+        }
+    }
+
+    // Add these methods to your Dashboard class
+
+    async loadBinanceAccounts() {
+        try {
+            const response = await this.apiCall('/api/binance-accounts');
+            if (response.ok) {
+                const accounts = await response.json();
+                const tbody = document.getElementById('binanceAccountsTable');
+                tbody.innerHTML = '';
+
+                // Add safety check
+                if (accounts && Array.isArray(accounts)) {
+                    accounts.forEach(account => {
+                        const row = this.createAccountRow(account);
+                        tbody.appendChild(row);
+                    });
+                } else {
+                    console.log('No accounts or not an array:', accounts);
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">No accounts found</td></tr>';
+                }
+            } else {
+                const errorText = await response.text();
+                console.error('API error:', errorText);
+            }
+        } catch (error) {
+            console.error('Error loading Binance accounts:', error);
+        }
+    }
+
+    showEditAccountModal(account) {
+        const modal = document.getElementById('editAccountModal');
+        if (modal) {
+            // Store the current account for later use
+            this.currentEditAccount = account;
+
+            // Pre-fill the form with current values
+            document.getElementById('editAccountName').value = account.name;
+            document.getElementById('editBaseUrl').value = account.base_url;
+
+            // Show the modal
+            modal.style.display = 'flex';
+        }
+    }
+
+    hideEditAccountModal() {
+        const modal = document.getElementById('editAccountModal');
+        if (modal) {
+            modal.style.display = 'none';
+            this.currentEditAccount = null; // Clear the stored account
+        }
+    }
+
+    async handleEditAccount() {
+        if (!this.currentEditAccount) {
+            alert('No account selected for editing');
+            return;
+        }
+
+        const saveBtn = document.getElementById('saveAccountBtn');
+        const form = document.getElementById('editAccountForm');
+
+        // Get form data
+        const formData = new FormData(form);
+        const updatedData = {
+            name: formData.get('editAccountName').trim(),
+            base_url: formData.get('editBaseUrl').trim()
+        };
+
+        // Validate required fields
+        if (!updatedData.name) {
+            alert('Account name is required!');
+            return;
+        }
+
+        try {
+            // Show loading state
+            saveBtn.textContent = 'Saving...';
+            saveBtn.disabled = true;
+
+            // Make API call
+            const response = await this.apiCall(`/api/binance-accounts/${this.currentEditAccount.id}`, {
+                method: 'PUT',
+                body: JSON.stringify(updatedData)
+            });
+
+            if (response.ok) {
+                // Success - close modal and refresh accounts list
+                this.hideEditAccountModal();
+                this.loadBinanceAccounts(); // Refresh the accounts table
+                console.log('Account updated successfully');
+            } else {
+                const error = await response.text();
+                alert('Error updating account: ' + error);
+            }
+        } catch (error) {
+            alert('Network error: ' + error.message);
+        } finally {
+            // Reset button
+            saveBtn.textContent = 'Save Changes';
+            saveBtn.disabled = false;
+        }
+    }
+
+    createAccountRow(account) {
+        const row = document.createElement('tr');
+        const createdDate = new Date(account.created_at).toLocaleDateString();
+
+        row.innerHTML = `
+            <td>${account.name}</td>
+            <td>${account.base_url}</td>
+            <td><span class="status-badge ${account.account_active ? 'running' : 'stopped'}">
+                ${account.account_active ? 'ACTIVE' : 'INACTIVE'}
+            </span></td>
+            <td>${createdDate}</td>
+            <td>
+                <button class="edit-account-btn btn-secondary" style="padding: 4px 8px; font-size: 0.8rem; margin-right: 5px;" data-account-id="${account.id}">
+                    Edit
+                </button>
+                <button class="delete-account-btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" data-account-id="${account.id}">
+                    Delete
+                </button>
+            </td>
+        `;
+
+        // Add event listeners
+        const editBtn = row.querySelector('.edit-account-btn');
+        editBtn.addEventListener('click', () => {
+            //console.log('Edit button clicked for account:', account); // Debug for now
+            this.showEditAccountModal(account); // We'll add this method next
+        });
+
+        const deleteBtn = row.querySelector('.delete-account-btn');
+        deleteBtn.addEventListener('click', () => {
+            this.deleteAccount(account.id);
+        });
+
+        return row;
+    }
+
     createBotStatsRow(bot) {
         const row = document.createElement('tr');
         row.innerHTML = `
             <td>${bot.name}</td>
             <td><span class="status-badge ${bot.status.toLowerCase()}">${bot.status}</span></td>
+            <td>${bot.account_name || "No Account"}</td>
             <td>${bot.win_rate}%</td>
             <td>${bot.profit_factor}</td>
             <td>${bot.trades}</td>
@@ -94,7 +324,7 @@ class Dashboard {
     async handleCreateBot() {
         const submitBtn = document.getElementById('submitBotBtn');
         const form = document.getElementById('createBotForm');
-        
+
         // Get form data
         const formData = new FormData(form);
         const botData = {
@@ -102,6 +332,12 @@ class Dashboard {
             strategy: formData.get('botStrategy').trim(),
             initial_holding: parseFloat(formData.get('initialHolding')) || 0
         };
+
+        // Add account ID if selected
+        const accountId = formData.get('botAccount');
+        if (accountId) {
+            botData.binance_account_id = parseInt(accountId);
+        }
 
         // Validate required fields
         if (!botData.name || !botData.strategy) {
@@ -160,6 +396,34 @@ class Dashboard {
             modal.style.display = 'flex';
             // Clear form
             document.getElementById('createBotForm').reset();
+
+            // Load available accounts for the dropdown
+            this.loadAvailableAccounts();
+        }
+    }
+
+    async loadAvailableAccounts() {
+        try {
+            const response = await this.apiCall('/api/binance-accounts');
+            if (response.ok) {
+                const accounts = await response.json();
+                console.log('Available accounts:', accounts); // Debug log
+
+                const dropdown = document.getElementById('botAccount');
+                dropdown.innerHTML = '<option value="">No Account</option>';
+
+                if (accounts && Array.isArray(accounts)) {
+                    accounts.forEach(account => {
+                        console.log('Adding account:', account); // Debug each account
+                        const option = document.createElement('option');
+                        option.value = account.id;
+                        option.textContent = `${account.name} (${account.base_url})`;
+                        dropdown.appendChild(option);
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('Error loading accounts:', error);
         }
     }
 
@@ -187,11 +451,25 @@ class Dashboard {
             this.loadProfile();
         });
 
+        // binance get prcie
+        document.getElementById('binanceBtn')?.addEventListener('click', () => {
+            this.testBinance();
+        });
+
+        // binance account info
+        document.getElementById('accInfoBtn')?.addEventListener('click', () => {
+            this.getAccountInfo();
+        });
+
+        document.getElementById('marginBtn')?.addEventListener('click', () => {
+            this.getMarginAccountInfo();
+        });
+
         document.getElementById("createBotBtn")?.addEventListener('click', () => {
             this.showCreateBotModal();
         });
 
-        
+
         // Modal close events
         document.getElementById('closeBotModal')?.addEventListener('click', () => {
             this.hideCreateBotModal();
@@ -224,7 +502,7 @@ class Dashboard {
             }
         });
 
-                // Bot status control buttons
+        // Bot status control buttons
         document.getElementById('startBotBtn')?.addEventListener('click', () => {
             this.updateBotStatus('RUNNING');
         });
@@ -242,20 +520,66 @@ class Dashboard {
             this.deleteBotConfirm();
         })
 
-            // Edit bot form submission
+        // Edit bot form submission
         document.getElementById('editBotForm')?.addEventListener('submit', (e) => {
             e.preventDefault();
             this.saveChanges();
         });
 
         const form = document.getElementById('createBotForm');
-        
+
         form?.addEventListener('submit', (e) => {
             console.log('Form submit event triggered!'); // ← Add this
             e.preventDefault();
             this.handleCreateBot();
         });
 
+        // Add these to setupEventListeners()
+        document.getElementById('createAccountBtn')?.addEventListener('click', () => {
+            this.showCreateAccountModal();
+        });
+
+        document.getElementById('closeAccountModal')?.addEventListener('click', () => {
+            this.hideCreateAccountModal();
+        });
+
+        document.getElementById('createAccountForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleCreateAccount();
+        });
+
+        // Add these to setupEventListeners()
+        document.getElementById('cancelAccountBtn')?.addEventListener('click', () => {
+            this.hideCreateAccountModal();
+        });
+
+        // Close modal when clicking outside
+        document.getElementById('createAccountModal')?.addEventListener('click', (e) => {
+            if (e.target.id === 'createAccountModal') {
+                this.hideCreateAccountModal();
+            }
+        });
+
+        // Edit account modal event listeners
+        document.getElementById('closeEditAccountModal')?.addEventListener('click', () => {
+            this.hideEditAccountModal();
+        });
+
+        document.getElementById('cancelEditAccountBtn')?.addEventListener('click', () => {
+            this.hideEditAccountModal();
+        });
+
+        document.getElementById('editAccountForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleEditAccount();
+        });
+
+        // Close modal when clicking outside
+        document.getElementById('editAccountModal')?.addEventListener('click', (e) => {
+            if (e.target.id === 'editAccountModal') {
+                this.hideEditAccountModal();
+            }
+        });
 
     }
 
@@ -276,6 +600,18 @@ class Dashboard {
             initial_holding: parseFloat(formData.get('editInitialHolding')) || 0
         };
 
+        // Include account ID from dropdown
+        const accountId = formData.get('editBotAccount');
+        console.log('Selected account ID:', accountId); // Debug log
+
+        if (accountId) {
+            updatedData.binance_account_id = parseInt(accountId);
+        } else {
+            updatedData.binance_account_id = null;
+        }
+
+        console.log('Sending updated data:', updatedData); // Debug log
+
         // Validate required fields
         if (!updatedData.name || !updatedData.strategy) {
             alert('Bot name and strategy are required!');
@@ -287,34 +623,42 @@ class Dashboard {
             saveBtn.textContent = 'Saving...';
             saveBtn.disabled = true;
 
+            console.log('Making API call to:', `/api/bots/${this.currentBot.id}`); // Debug log
+
             // Make API call
             const response = await this.apiCall(`/api/bots/${this.currentBot.id}`, {
                 method: 'PUT',
                 body: JSON.stringify(updatedData)
             });
 
+            console.log('Response status:', response.status, response.ok); // Debug log
+
             if (response.ok) {
                 const updatedBot = await response.json();
-                
+                console.log('Updated bot response:', updatedBot);
+
                 // Update the current bot object
                 this.currentBot = updatedBot;
-                
-                // Refresh the bot table to show updated data
+
+                // Refresh ALL related tables to show changes
                 this.loadBotStats();
-                
+                this.loadBinanceAccounts();
+                this.loadAccountsForEdit(updatedBot);
+
                 console.log('Bot updated successfully');
-                
-                // Optional: Brief success feedback
+
+                // Brief success feedback
                 saveBtn.textContent = 'Saved!';
                 setTimeout(() => {
                     saveBtn.textContent = 'Save Changes';
                 }, 1000);
-                
             } else {
                 const error = await response.text();
+                console.error('Server error:', error); // Debug log
                 alert('Error updating bot: ' + error);
             }
         } catch (error) {
+            console.error('Network error:', error); // Debug log
             alert('Network error: ' + error.message);
         } finally {
             // Reset button
@@ -325,6 +669,7 @@ class Dashboard {
                 }
             }, 1000);
         }
+        this.hideBotDetailsModal();
     }
 
     deleteBotConfirm() {
@@ -335,7 +680,7 @@ class Dashboard {
 
         // Show confirmation dialog
         const confirmed = confirm(`Are you sure you want to delete "${this.currentBot.name}"?\n\nThis action cannot be undone.`);
-        
+
         if (confirmed) {
             this.deleteBot();
         }
@@ -393,15 +738,15 @@ class Dashboard {
             if (response.ok) {
                 // Update the current bot object
                 this.currentBot.status = newStatus;
-                
+
                 // Update the status display in the modal
                 const statusElement = document.getElementById('botCurrentStatus');
                 statusElement.textContent = newStatus;
                 statusElement.className = `status-badge ${newStatus.toLowerCase()}`;
-                
+
                 // Refresh the bot table to show updated status
                 this.loadBotStats();
-                
+
                 console.log(`Bot status updated to ${newStatus}`);
             } else {
                 const error = await response.text();
@@ -415,14 +760,14 @@ class Dashboard {
     async testApiEndpoint() {
         const testApiBtn = document.getElementById('testApiBtn');
         const apiResponse = document.getElementById('apiResponse');
-        
+
         try {
             testApiBtn.textContent = 'Testing...';
             testApiBtn.disabled = true;
-            
+
             const response = await this.apiCall('/api/hello');
             const data = await response.json();
-            
+
             apiResponse.innerHTML = `<strong>API Response:</strong><br>${JSON.stringify(data, null, 2)}`;
             apiResponse.style.display = 'block';
         } catch (error) {
@@ -437,13 +782,13 @@ class Dashboard {
     async loadProfile() {
         const profileBtn = document.getElementById('profileBtn');
         const profileResponse = document.getElementById('profileResponse');
-        
+
         try {
             profileBtn.textContent = 'Loading...';
             profileBtn.disabled = true;
-            
+
             const response = await this.apiCall('/api/profile');
-            
+
             if (response.ok) {
                 const userData = await response.json();
                 profileResponse.innerHTML = `
@@ -464,6 +809,130 @@ class Dashboard {
         } finally {
             profileBtn.textContent = 'View Profile';
             profileBtn.disabled = false;
+        }
+    }
+
+    async testBinance() {
+        const binanceBtn = document.getElementById("binanceBtn")
+        const binanceResponse = document.getElementById("binanceResponse")
+
+        try {
+            const response = await this.apiCall('/api/test-binance')
+
+            if (response.ok) {
+                const priceData = await response.json();
+                binanceResponse.innerHTML = `
+                    <strong>Symbol:</strong> ${priceData.symbol}<br>
+                    <strong>Price:</strong> ${priceData.price}<br>
+                `;
+                binanceResponse.style.display = 'block';
+            } else {
+                binanceResponse.innerHTML = '<strong>Error:</strong><br>Failed to get price';
+                binanceResponse.style.display = 'block';
+            }
+        } catch (error) {
+            binanceResponse.innerHTML = '<strong>Error:</strong><br>Failed to get price';
+            binanceResponse.style.display = 'block';
+        }
+    }
+
+    async getAccountInfo() {
+        const accInfoBtn = document.getElementById("accInfoBtn");
+        const accInfoResponse = document.getElementById("accInfoResponse");
+
+        try {
+            const response = await this.apiCall('/api/get-account-info');
+
+            if (response.ok) {
+                const accountData = await response.json();
+                let balanceHtml = '<strong>Account Balances:</strong><br><br>';
+
+                accountData.Balances
+                    .filter(balance => parseFloat(balance.free || 0) > 0 || parseFloat(balance.locked || 0) > 0)
+                    .forEach(balance => {
+                        // Show asset name AND the amounts
+                        balanceHtml += `<strong>${balance.asset}:</strong><br>`;
+                        balanceHtml += `&nbsp;&nbsp;Free: ${balance.free}<br>`;
+                        balanceHtml += `&nbsp;&nbsp;Locked: ${balance.locked}<br><br>`;
+                    });
+
+                accInfoResponse.innerHTML = balanceHtml;
+                accInfoResponse.style.display = 'block';
+            }
+            else {
+                const errorText = await response.text();
+                accInfoResponse.innerHTML = `<strong>Server Error:</strong><br>${errorText}`;
+                accInfoResponse.style.display = 'block';
+            }
+
+        } catch (error) {
+            console.error("JavaScript error:", error);
+            accInfoResponse.innerHTML = '<strong>Error:</strong><br>Failed to get account info';
+            accInfoResponse.style.display = 'block';
+        }
+    }
+
+    // Add this method to your Dashboard class in dashboard.js
+
+    async getMarginAccountInfo() {
+        const marginBtn = document.getElementById("marginBtn");
+        const marginResponse = document.getElementById("marginResponse");
+
+        try {
+            marginBtn.textContent = 'Loading...';
+            marginBtn.disabled = true;
+
+            const response = await this.apiCall('/api/get-margin-account-info');
+            if (response.ok) {
+                const marginData = await response.json();
+                console.log("Margin account data:", marginData);
+
+                let marginHtml = '<strong>Cross Margin Account Info:</strong><br><br>';
+
+                // Account overview
+                marginHtml += `<strong>Account Status:</strong><br>`;
+                marginHtml += `&nbsp;&nbsp;Margin Level: ${marginData.marginLevel}<br>`;
+                marginHtml += `&nbsp;&nbsp;Borrow Enabled: ${marginData.borrowEnabled ? 'Yes' : 'No'}<br>`;
+                marginHtml += `&nbsp;&nbsp;Trade Enabled: ${marginData.tradeEnabled ? 'Yes' : 'No'}<br><br>`;
+
+                // Portfolio summary (in BTC terms)
+                marginHtml += `<strong>Portfolio Summary (BTC):</strong><br>`;
+                marginHtml += `&nbsp;&nbsp;Total Assets: ${marginData.totalAssetOfBtc}<br>`;
+                marginHtml += `&nbsp;&nbsp;Total Liabilities: ${marginData.totalLiabilityOfBtc}<br>`;
+                marginHtml += `&nbsp;&nbsp;Net Assets: ${marginData.totalNetAssetOfBtc}<br><br>`;
+
+                // User assets with balances
+                marginHtml += `<strong>Asset Details:</strong><br>`;
+                marginData.userAssets
+                    .filter(asset =>
+                        parseFloat(asset.free || 0) > 0 ||
+                        parseFloat(asset.locked || 0) > 0 ||
+                        parseFloat(asset.borrowed || 0) > 0
+                    )
+                    .forEach(asset => {
+                        marginHtml += `<strong>${asset.asset}:</strong><br>`;
+                        marginHtml += `&nbsp;&nbsp;Free: ${asset.free}<br>`;
+                        marginHtml += `&nbsp;&nbsp;Locked: ${asset.locked}<br>`;
+                        marginHtml += `&nbsp;&nbsp;Borrowed: ${asset.borrowed}<br>`;
+                        marginHtml += `&nbsp;&nbsp;Interest: ${asset.interest}<br>`;
+                        marginHtml += `&nbsp;&nbsp;Net Asset: ${asset.netAsset}<br><br>`;
+                    });
+
+                marginResponse.innerHTML = marginHtml;
+                marginResponse.style.display = 'block';
+
+            } else {
+                const errorText = await response.text();
+                marginResponse.innerHTML = `<strong>Server Error:</strong><br>${errorText}`;
+                marginResponse.style.display = 'block';
+            }
+        } catch (error) {
+            console.error("JavaScript error:", error);
+            marginResponse.innerHTML = `<strong>Error:</strong><br>${error.message}`;
+            marginResponse.style.display = 'block';
+        } finally {
+            marginBtn.textContent = 'Get Margin Info';
+            marginBtn.disabled = false;
         }
     }
 
@@ -513,7 +982,7 @@ class Dashboard {
         console.log('Opening bot details for:', bot); // Debug log
         console.log('Bot object received:', bot);  // ← Add this
         console.log('Bot ID:', bot.id);
-        
+
         const modal = document.getElementById('botDetailsModal');
         if (!modal) {
             console.error('Bot details modal not found!');
@@ -539,15 +1008,61 @@ class Dashboard {
         document.getElementById('displayWinRate').textContent = `${bot.win_rate || 0}%`;
         document.getElementById('displayProfitFactor').textContent = bot.profit_factor || 0;
         document.getElementById('displayTrades').textContent = bot.trades || 0;
-        
+
         // Format P&L
         const pnl = bot.pnl || 0;
         const pnlElement = document.getElementById('displayPnL');
         pnlElement.textContent = pnl >= 0 ? `$${Math.abs(pnl).toLocaleString()}` : `-$${Math.abs(pnl).toLocaleString()}`;
         pnlElement.className = pnl >= 0 ? 'positive' : 'negative';
 
-        // Show the modal
+        this.loadAccountsForEdit(bot);
         modal.style.display = 'flex';
+    }
+
+    async loadAccountsForEdit(bot) {
+        console.log('Loading accounts for edit, bot:', bot); // Debug log
+
+        try {
+            const response = await this.apiCall('/api/binance-accounts');
+            console.log('Accounts response:', response.status, response.ok); // Debug log
+
+            if (response.ok) {
+                const accounts = await response.json();
+                console.log('Accounts data for edit:', accounts); // Debug log
+
+                const dropdown = document.getElementById('editBotAccount');
+                console.log('Dropdown element:', dropdown); // Debug log
+
+                // Clear existing options
+                dropdown.innerHTML = '<option value="">No Account</option>';
+
+                if (accounts && Array.isArray(accounts)) {
+                    console.log('Adding', accounts.length, 'accounts to edit dropdown'); // Debug log
+
+                    accounts.forEach((account, index) => {
+                        console.log('Adding account', index, ':', account); // Debug log
+                        const option = document.createElement('option');
+                        option.value = account.id;
+                        option.textContent = `${account.name} (${account.base_url})`;
+                        dropdown.appendChild(option);
+                    })
+
+                    if (bot.binance_account_id && bot.binance_account_id > 0) {
+                        dropdown.value = bot.binance_account_id;
+                        console.log('Pre-selected account ID: ', bot.binance_account_id);
+                    } else {
+                        dropdown.value = "";
+                        console.log('No account linked, selected "No Account');
+                    }
+                } else {
+                    console.log('No accounts or not an array'); // Debug log
+                }
+
+                console.log('Final dropdown HTML:', dropdown.innerHTML); // Debug log
+            }
+        } catch (error) {
+            console.error('Error loading accounts for edit:', error);
+        }
     }
 
     hideBotDetailsModal() {
@@ -563,7 +1078,7 @@ class Dashboard {
 document.addEventListener('DOMContentLoaded', () => {
     const dashboard = new Dashboard();
     dashboard.init();
-    
+
     // Clean up on page unload
     window.addEventListener('beforeunload', () => {
         dashboard.stopAutoRefresh();

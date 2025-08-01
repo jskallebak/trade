@@ -490,7 +490,7 @@ body {
     cursor: not-allowed;
 }
 
-#apiResponse, #profileResponse {
+#apiResponse, #profileResponse, #binanceResponse, #accInfoResponse, #marginResponse, #editAccountModa{
     margin-top: 10px;
     padding: 10px;
     background: #f7fafc;
