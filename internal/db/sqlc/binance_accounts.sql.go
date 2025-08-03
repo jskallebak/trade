@@ -198,7 +198,7 @@ func (q *Queries) GetUserBinanceAccounts(ctx context.Context, userID int32) ([]G
 
 const getUserBinanceAccountsWithStatus = `-- name: GetUserBinanceAccountsWithStatus :many
 SELECT 
-    ba.id, ba.user_id, ba.name, ba.api_key, ba.base_url, ba.margin_enabled, ba.is_active, ba.created_at, ba.updated_at,
+    ba.id, ba.user_id, ba.name, ba.api_key, ba.api_secret, ba.base_url, ba.margin_enabled, ba.is_active, ba.created_at, ba.updated_at,
     CASE 
         WHEN b.id IS NOT NULL THEN true 
         ELSE false 
@@ -213,6 +213,7 @@ type GetUserBinanceAccountsWithStatusRow struct {
 	UserID        int32              `json:"user_id"`
 	Name          string             `json:"name"`
 	ApiKey        string             `json:"api_key"`
+	ApiSecret     string             `json:"api_secret"`
 	BaseUrl       pgtype.Text        `json:"base_url"`
 	MarginEnabled pgtype.Bool        `json:"margin_enabled"`
 	IsActive      pgtype.Bool        `json:"is_active"`
@@ -235,6 +236,7 @@ func (q *Queries) GetUserBinanceAccountsWithStatus(ctx context.Context, userID i
 			&i.UserID,
 			&i.Name,
 			&i.ApiKey,
+			&i.ApiSecret,
 			&i.BaseUrl,
 			&i.MarginEnabled,
 			&i.IsActive,

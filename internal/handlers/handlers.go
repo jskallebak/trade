@@ -795,7 +795,7 @@ func (h *UserHandlers) TestBinance(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(price)
 }
 
-func (h *UserHandlers) BinanceGetAccountInfo(w http.ResponseWriter, r *http.Request) {
+func (h *UserHandlers) GetAccountInfo(w http.ResponseWriter, r *http.Request) {
 	key := os.Getenv("M_API_KEY")
 	secret := os.Getenv("M_API_SECRET")
 
@@ -816,9 +816,23 @@ func (h *UserHandlers) BinanceGetAccountInfo(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *UserHandlers) GetMarginAccountInfo(w http.ResponseWriter, r *http.Request) {
-	key := os.Getenv("M_API_KEY")
-	secret := os.Getenv("M_API_SECRET")
-	client, err := binance.New(key, secret, "")
+	var req struct {
+		Key    string `json:"key"`
+		Secret string `json:"secret"`
+	}
+
+	// TODO: Key and Secret needs to be secured
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Key == "" || req.Secret == "" {
+		http.Error(w, "API key and secret are required", http.StatusBadRequest)
+		return
+	}
+
+	client, err := binance.New(req.Key, req.Secret, "")
 	if err != nil {
 		http.Error(w, "Failed to create client", http.StatusInternalServerError)
 		return
@@ -831,7 +845,9 @@ func (h *UserHandlers) GetMarginAccountInfo(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(marginAccount)
+	if err := json.NewEncoder(w).Encode(marginAccount); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 func (h *UserHandlers) UpdateBinanceAccount(w http.ResponseWriter, r *http.Request) {
@@ -1080,8 +1096,8 @@ func SetupRoutes(db *database.Database) *mux.Router {
 
 	// Binance endpoints
 	r.HandleFunc("/api/test-binance", userHandler.TestBinance).Methods("GET")
-	r.HandleFunc("/api/get-account-info", userHandler.BinanceGetAccountInfo).Methods("GET")
-	r.HandleFunc("/api/get-margin-account-info", userHandler.GetMarginAccountInfo).Methods("GET")
+	r.HandleFunc("/api/get-account-info", userHandler.GetAccountInfo).Methods("GET")
+	r.HandleFunc("/api/get-margin-account-info", userHandler.GetMarginAccountInfo).Methods("POST")
 	r.HandleFunc("/api/binance-accounts", userHandler.CreateBinanceAccount).Methods("POST")
 	r.HandleFunc("/api/binance-accounts", userHandler.GetUserBinanceAccounts).Methods("GET")
 	r.HandleFunc("/api/binance-accounts/{id}", userHandler.DeleteBinanceAccount).Methods("DELETE")

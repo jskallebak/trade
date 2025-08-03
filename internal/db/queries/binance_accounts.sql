@@ -51,7 +51,7 @@ RETURNING id, user_id, name, api_key, base_url, is_active, created_at, updated_a
 
 -- name: GetUserBinanceAccountsWithStatus :many
 SELECT 
-    ba.id, ba.user_id, ba.name, ba.api_key, ba.base_url, ba.margin_enabled, ba.is_active, ba.created_at, ba.updated_at,
+    ba.id, ba.user_id, ba.name, ba.api_key, ba.api_secret, ba.base_url, ba.margin_enabled, ba.is_active, ba.created_at, ba.updated_at,
     CASE 
         WHEN b.id IS NOT NULL THEN true 
         ELSE false 

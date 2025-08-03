@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}}</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
+
 <body>
     <div class="dashboard-container">
         <!-- Header with Key Metrics -->
@@ -15,7 +17,7 @@
                 <button id="logoutBtn" class="logout-btn">Logout</button>
             </div>
         </header>
-        
+
         <!-- Key Metrics Row -->
         <div class="metrics-container">
             <div class="metric-card">
@@ -35,7 +37,7 @@
                 <span class="metric-value positive" id="uptime">99.8%</span>
             </div>
         </div>
-        
+
         <!-- Bot Status and Stats Table -->
 
         <div class="table-container">
@@ -60,7 +62,7 @@
                 </tbody>
             </table>
         </div>
-        
+
         <!-- Open Positions Table -->
         <div class="table-container">
             <h2>OPEN POSITIONS / POSITIONS TABLE</h2>
@@ -101,7 +103,7 @@
                 <thead>
                     <tr>
                         <th>Account Name</th>
-                        <th>Base URL</th>
+                        <th>Balance</th>
                         <th>Status</th>
                         <th>Created</th>
                         <th>Actions</th>
@@ -111,7 +113,7 @@
                     <!-- Accounts will be loaded here -->
                 </tbody>
             </table>
-        </div>       
+        </div>
         <!-- Debug Section (can be removed later) -->
         <div class="debug-section">
             <details>
@@ -138,7 +140,7 @@
                 </div>
             </details>
         </div>
-        
+
         <footer>
             <p>Trading Dashboard Server v0.1</p>
         </footer>
@@ -157,11 +159,13 @@
                     </div>
                     <div class="form-group">
                         <label for="botStrategy">Strategy *</label>
-                        <input type="text" id="botStrategy" name="botStrategy" required placeholder="e.g., RSI, Moving Average, MACD">
+                        <input type="text" id="botStrategy" name="botStrategy" required
+                            placeholder="e.g., RSI, Moving Average, MACD">
                     </div>
                     <div class="form-group">
                         <label for="initialHolding">Initial Holding ($)</label>
-                        <input type="number" id="initialHolding" name="initialHolding" step="0.01" min="0" placeholder="0.00">
+                        <input type="number" id="initialHolding" name="initialHolding" step="0.01" min="0"
+                            placeholder="0.00">
                     </div>
                     <!-- ADD THIS NEW FIELD -->
                     <div class="form-group">
@@ -178,6 +182,18 @@
                 </form>
             </div>
         </div>
+
+        <!-- TODO -->
+        <!-- Account Details Modal -->
+        <div id="accountDetailModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Account Details</h3>
+                    <span class="modal-close" id="closeAccountDetailsModal">&times;</span>
+                </div>
+            </div>
+        </div>
+
         <!-- Bot Details Modal -->
         <div id="botDetailsModal" class="modal" style="display: none;">
             <div class="modal-content">
@@ -185,7 +201,7 @@
                     <h3>Bot Details</h3>
                     <span class="modal-close" id="closeBotDetailsModal">&times;</span>
                 </div>
-                
+
                 <!-- Bot Status Section -->
                 <div class="bot-status-section">
                     <div class="status-display">
@@ -221,7 +237,7 @@
                             <!-- Will be populated with available accounts -->
                         </select>
                     </div>
-                    
+
                     <!-- Read-only stats -->
                     <div class="bot-stats-section">
                         <h4>Performance Stats</h4>
@@ -263,7 +279,8 @@
                 <form id="createAccountForm">
                     <div class="form-group">
                         <label for="accountName">Account Name *</label>
-                        <input type="text" id="accountName" name="accountName" required placeholder="e.g., Main Account, Testnet">
+                        <input type="text" id="accountName" name="accountName" required
+                            placeholder="e.g., Main Account, Testnet">
                     </div>
                     <div class="form-group">
                         <label for="apiKey">API Key *</label>
@@ -275,7 +292,8 @@
                     </div>
                     <div class="form-group">
                         <label for="baseUrl">Base URL</label>
-                        <input type="text" id="baseUrl" name="baseUrl" placeholder="https://api.binance.com" value="https://api.binance.com">
+                        <input type="text" id="baseUrl" name="baseUrl" placeholder="https://api.binance.com"
+                            value="https://api.binance.com">
                     </div>
                     <div class="form-actions">
                         <button type="button" id="cancelAccountBtn" class="btn-secondary">Cancel</button>
@@ -309,8 +327,9 @@
         </div>
     </div>
 
-        <script src="static/js/common.js"></script>
-        <script src="static/js/dashboard.js"></script>
-    
+    <script src="static/js/common.js"></script>
+    <script src="static/js/dashboard.js"></script>
+
 </body>
+
 </html>

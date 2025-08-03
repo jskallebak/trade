@@ -161,32 +161,70 @@ class Dashboard {
         }
     }
 
-    // Add these methods to your Dashboard class
-
     async loadBinanceAccounts() {
         try {
             const response = await this.apiCall('/api/binance-accounts');
-            if (response.ok) {
-                const accounts = await response.json();
-                const tbody = document.getElementById('binanceAccountsTable');
+            const data = await response.json();
+
+            const tbody = document.getElementById('accountsTable');
+            if (tbody) {
                 tbody.innerHTML = '';
 
-                // Add safety check
-                if (accounts && Array.isArray(accounts)) {
-                    accounts.forEach(account => {
+                if (data.length === 0) {
+                    const emptyRow = document.createElement('tr');
+                    emptyRow.innerHTML = '<td colspan="5" style="text-align: center; color: #666; padding: 20px;">No accounts configured</td>';
+                    tbody.appendChild(emptyRow);
+                } else {
+                    data.forEach(account => {
                         const row = this.createAccountRow(account);
                         tbody.appendChild(row);
                     });
-                } else {
-                    console.log('No accounts or not an array:', accounts);
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">No accounts found</td></tr>';
                 }
-            } else {
-                const errorText = await response.text();
-                console.error('API error:', errorText);
             }
         } catch (error) {
             console.error('Error loading Binance accounts:', error);
+            const tbody = document.getElementById('accountsTable');
+            if (tbody) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #e53e3e; padding: 20px;">Error loading accounts</td></tr>';
+            }
+        }
+    }
+
+
+    async loadAccountBalance(accountId, key, secret) {
+        try {
+            const accountData = {
+                key: key,
+                secret: secret
+            };
+
+            const response = await this.apiCall('/api/get-margin-account-info', {
+                method: 'POST',  // Changed from GET to POST
+                body: JSON.stringify(accountData)
+            });
+
+            const balanceElement = document.getElementById(`balance-${accountId}`);
+
+            if (response.ok) {
+                const accInfo = await response.json();  // Added await here
+                const balance = parseFloat(accInfo.TotalNetAssetOfUSDT || accInfo.totalNetAssetOfUsdt || 0);
+                balanceElement.textContent = `$${balance.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                })}`;
+            } else {
+                const error = await response.text();
+                console.error('Error getting account info:', error);
+                balanceElement.textContent = 'Error loading';
+                balanceElement.style.color = '#e53e3e';
+            }
+        } catch (error) {
+            console.error('Network error loading account balance:', error);
+            const balanceElement = document.getElementById(`balance-${accountId}`);
+            if (balanceElement) {
+                balanceElement.textContent = 'Network Error';
+                balanceElement.style.color = '#e53e3e';
+            }
         }
     }
 
@@ -264,38 +302,41 @@ class Dashboard {
         }
     }
 
-    createAccountRow(account) {
+    async createAccountRow(account) {
         const row = document.createElement('tr');
         const createdDate = new Date(account.created_at).toLocaleDateString();
 
+        // Initialize with loading state
         row.innerHTML = `
-            <td>${account.name}</td>
-            <td>${account.base_url}</td>
-            <td><span class="status-badge ${account.account_active ? 'running' : 'stopped'}">
-                ${account.account_active ? 'ACTIVE' : 'INACTIVE'}
-            </span></td>
-            <td>${createdDate}</td>
-            <td>
-                <button class="edit-account-btn btn-secondary" style="padding: 4px 8px; font-size: 0.8rem; margin-right: 5px;" data-account-id="${account.id}">
-                    Edit
-                </button>
-                <button class="delete-account-btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" data-account-id="${account.id}">
-                    Delete
-                </button>
-            </td>
-        `;
+        <td>${account.name}</td>
+        <td id="balance-${account.id}">Loading...</td>
+        <td><span class="status-badge ${account.account_active ? 'running' : 'stopped'}">
+            ${account.account_active ? 'ACTIVE' : 'INACTIVE'}
+        </span></td>
+        <td>${createdDate}</td>
+        <td>
+            <button class="edit-account-btn btn-secondary" style="padding: 4px 8px; font-size: 0.8rem; margin-right: 5px;" data-account-id="${account.id}">
+                Edit
+            </button>
+            <button class="delete-account-btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" data-account-id="${account.id}">
+                Delete
+            </button>
+        </td>
+    `;
 
-        // Add event listeners
+        // Add event listeners first
         const editBtn = row.querySelector('.edit-account-btn');
         editBtn.addEventListener('click', () => {
-            //console.log('Edit button clicked for account:', account); // Debug for now
-            this.showEditAccountModal(account); // We'll add this method next
+            this.showEditAccountModal(account);
         });
 
         const deleteBtn = row.querySelector('.delete-account-btn');
         deleteBtn.addEventListener('click', () => {
             this.deleteAccount(account.id);
         });
+
+        // Load account info asynchronously
+        this.loadAccountBalance(account.id, account.key, account.secret);
 
         return row;
     }
@@ -871,8 +912,6 @@ class Dashboard {
             accInfoResponse.style.display = 'block';
         }
     }
-
-    // Add this method to your Dashboard class in dashboard.js
 
     async getMarginAccountInfo() {
         const marginBtn = document.getElementById("marginBtn");

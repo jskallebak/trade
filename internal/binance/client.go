@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -35,6 +36,7 @@ type CrossMarginAccount struct {
 	TotalAssetOfBtc     string             `json:"totalAssetOfBtc"`
 	TotalLiabilityOfBtc string             `json:"totalLiabilityOfBtc"`
 	TotalNetAssetOfBtc  string             `json:"totalNetAssetOfBtc"`
+	TotalNetAssetOfUSDT string             `json:"totalNetAssetOfUsdt"`
 	TradeEnabled        bool               `json:"tradeEnabled"`
 	TransferEnabled     bool               `json:"transferEnabled"`
 	UserAssets          []CrossMarginAsset `json:"userAssets"`
@@ -117,11 +119,6 @@ func (c Client) GetMarginAccountInfo() (CrossMarginAccount, error) {
 	finalQuery := fmt.Sprintf("%s&signature=%s", queryString, signature)
 	url := fmt.Sprintf("%s/sapi/v1/margin/account?%s", c.BaseURL, finalQuery)
 
-	// Debug logging
-	log.Printf("Margin API URL: %s", url)
-	log.Printf("API Key: %s", c.ApiKey)
-	log.Printf("Base URL: %s", c.BaseURL)
-
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return CrossMarginAccount{}, fmt.Errorf("error making new request %v", err)
@@ -145,7 +142,34 @@ func (c Client) GetMarginAccountInfo() (CrossMarginAccount, error) {
 		return CrossMarginAccount{}, fmt.Errorf("error decoding the response %v", err)
 	}
 
+	balance, err := c.BtcAsset2Usdt(marginAccount.TotalAssetOfBtc)
+	if err != nil {
+		return CrossMarginAccount{}, fmt.Errorf("error getting the margin balance %v", err)
+	}
+
+	marginAccount.TotalNetAssetOfUSDT = balance
+
 	return marginAccount, nil
+}
+
+func (c Client) BtcAsset2Usdt(asset string) (string, error) {
+	totalAsset, err := strconv.ParseFloat(asset, 64)
+	if err != nil {
+		return "", fmt.Errorf("error converting TotalAssetOfBtc to float: %v", err)
+	}
+
+	priceData, err := c.GetPrice("BTCUSDT")
+	if err != nil {
+		return "", fmt.Errorf("error getting BTCUSDT price: %v", err)
+	}
+
+	price, err := strconv.ParseFloat(priceData.Price, 64)
+	if err != nil {
+		return "", fmt.Errorf("error converting price data to float: %v", err)
+	}
+
+	balance := price * totalAsset
+	return fmt.Sprintf("%.2f", balance), nil
 }
 
 func (c Client) GetAccountInfo() (AccountInfo, error) {
