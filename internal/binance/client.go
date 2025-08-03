@@ -142,34 +142,39 @@ func (c Client) GetMarginAccountInfo() (CrossMarginAccount, error) {
 		return CrossMarginAccount{}, fmt.Errorf("error decoding the response %v", err)
 	}
 
-	balance, err := c.BtcAsset2Usdt(marginAccount.TotalAssetOfBtc)
+	asset, err := c.BtcAsset2Usdt(marginAccount.TotalAssetOfBtc)
 	if err != nil {
 		return CrossMarginAccount{}, fmt.Errorf("error getting the margin balance %v", err)
 	}
 
-	marginAccount.TotalNetAssetOfUSDT = balance
+	liability, err := c.BtcAsset2Usdt(marginAccount.TotalLiabilityOfBtc)
+	if err != nil {
+		return CrossMarginAccount{}, fmt.Errorf("error getting the liabillities %v", err)
+	}
+
+	marginAccount.TotalNetAssetOfUSDT = fmt.Sprintf("%.2f", (asset - liability))
 
 	return marginAccount, nil
 }
 
-func (c Client) BtcAsset2Usdt(asset string) (string, error) {
+func (c Client) BtcAsset2Usdt(asset string) (float64, error) {
 	totalAsset, err := strconv.ParseFloat(asset, 64)
 	if err != nil {
-		return "", fmt.Errorf("error converting TotalAssetOfBtc to float: %v", err)
+		return 0.0, fmt.Errorf("error converting TotalAssetOfBtc to float: %v", err)
 	}
 
 	priceData, err := c.GetPrice("BTCUSDT")
 	if err != nil {
-		return "", fmt.Errorf("error getting BTCUSDT price: %v", err)
+		return 0.0, fmt.Errorf("error getting BTCUSDT price: %v", err)
 	}
 
 	price, err := strconv.ParseFloat(priceData.Price, 64)
 	if err != nil {
-		return "", fmt.Errorf("error converting price data to float: %v", err)
+		return 0.0, fmt.Errorf("error converting price data to float: %v", err)
 	}
 
 	balance := price * totalAsset
-	return fmt.Sprintf("%.2f", balance), nil
+	return balance, nil
 }
 
 func (c Client) GetAccountInfo() (AccountInfo, error) {

@@ -166,8 +166,16 @@ class Dashboard {
             const response = await this.apiCall('/api/binance-accounts');
             const data = await response.json();
 
-            const tbody = document.getElementById('accountsTable');
+            const tbody = document.getElementById('binanceAccountsTable');
             if (tbody) {
+                // Store existing balance values before clearing the table
+                const existingBalances = {};
+                const existingBalanceElements = tbody.querySelectorAll('[id^="balance-"]');
+                existingBalanceElements.forEach(el => {
+                    const accountId = el.id.replace('balance-', '');
+                    existingBalances[accountId] = el.textContent;
+                });
+
                 tbody.innerHTML = '';
 
                 if (data.length === 0) {
@@ -175,21 +183,30 @@ class Dashboard {
                     emptyRow.innerHTML = '<td colspan="5" style="text-align: center; color: #666; padding: 20px;">No accounts configured</td>';
                     tbody.appendChild(emptyRow);
                 } else {
-                    data.forEach(account => {
+                    // Create rows and restore existing balances
+                    for (const account of data) {
                         const row = this.createAccountRow(account);
                         tbody.appendChild(row);
-                    });
+
+                        // Restore previous balance if it exists and is valid
+                        const previousBalance = existingBalances[account.id];
+                        if (previousBalance && previousBalance !== 'Loading...' && !previousBalance.includes('Error') && !previousBalance.includes('Network')) {
+                            const balanceElement = document.getElementById(`balance-${account.id}`);
+                            if (balanceElement) {
+                                balanceElement.textContent = previousBalance;
+                            }
+                        }
+                    }
                 }
             }
         } catch (error) {
             console.error('Error loading Binance accounts:', error);
-            const tbody = document.getElementById('accountsTable');
+            const tbody = document.getElementById('binanceAccountsTable');
             if (tbody) {
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #e53e3e; padding: 20px;">Error loading accounts</td></tr>';
             }
         }
     }
-
 
     async loadAccountBalance(accountId, key, secret) {
         try {
@@ -199,31 +216,51 @@ class Dashboard {
             };
 
             const response = await this.apiCall('/api/get-margin-account-info', {
-                method: 'POST',  // Changed from GET to POST
+                method: 'POST',
                 body: JSON.stringify(accountData)
             });
 
             const balanceElement = document.getElementById(`balance-${accountId}`);
 
+            if (!balanceElement) {
+                console.warn(`Balance element for account ${accountId} not found`);
+                return;
+            }
+
             if (response.ok) {
-                const accInfo = await response.json();  // Added await here
+                const accInfo = await response.json();
                 const balance = parseFloat(accInfo.TotalNetAssetOfUSDT || accInfo.totalNetAssetOfUsdt || 0);
+
+                // Update the balance (this will replace "Loading..." or update existing balance)
                 balanceElement.textContent = `$${balance.toLocaleString('en-US', {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2
                 })}`;
+
+                // Reset any error styling that might have been applied
+                balanceElement.style.color = '';
+
             } else {
                 const error = await response.text();
                 console.error('Error getting account info:', error);
-                balanceElement.textContent = 'Error loading';
-                balanceElement.style.color = '#e53e3e';
+
+                // Only show error if we don't have a previous valid balance
+                if (balanceElement.textContent === 'Loading...' || balanceElement.textContent.includes('Error') || balanceElement.textContent.includes('Network')) {
+                    balanceElement.textContent = 'Error loading';
+                    balanceElement.style.color = '#e53e3e';
+                }
+                // If we have a previous valid balance (starts with $), keep it
             }
         } catch (error) {
             console.error('Network error loading account balance:', error);
             const balanceElement = document.getElementById(`balance-${accountId}`);
             if (balanceElement) {
-                balanceElement.textContent = 'Network Error';
-                balanceElement.style.color = '#e53e3e';
+                // Only show network error if we don't have a previous valid balance
+                if (balanceElement.textContent === 'Loading...' || balanceElement.textContent.includes('Error') || balanceElement.textContent.includes('Network')) {
+                    balanceElement.textContent = 'Network Error';
+                    balanceElement.style.color = '#e53e3e';
+                }
+                // If we have a previous valid balance (starts with $), keep it
             }
         }
     }
@@ -302,14 +339,17 @@ class Dashboard {
         }
     }
 
-    async createAccountRow(account) {
+    createAccountRow(account) {
         const row = document.createElement('tr');
         const createdDate = new Date(account.created_at).toLocaleDateString();
 
-        // Initialize with loading state
+        const existingBalanceElement = document.getElementById(`balance-${account.id}`);
+        const existingBalance = existingBalanceElement ? existingBalanceElement.textContent : 'Loading...'
+
+        // Create the row HTML
         row.innerHTML = `
         <td>${account.name}</td>
-        <td id="balance-${account.id}">Loading...</td>
+        <td id="balance-${account.id}">${existingBalance}</td>
         <td><span class="status-badge ${account.account_active ? 'running' : 'stopped'}">
             ${account.account_active ? 'ACTIVE' : 'INACTIVE'}
         </span></td>
@@ -324,7 +364,7 @@ class Dashboard {
         </td>
     `;
 
-        // Add event listeners first
+        // Add event listeners
         const editBtn = row.querySelector('.edit-account-btn');
         editBtn.addEventListener('click', () => {
             this.showEditAccountModal(account);
@@ -335,10 +375,10 @@ class Dashboard {
             this.deleteAccount(account.id);
         });
 
-        // Load account info asynchronously
-        this.loadAccountBalance(account.id, account.key, account.secret);
+        // Load account balance asynchronously (don't await it)
+        this.loadAccountBalance(account.id, account.api_key, account.api_secret);
 
-        return row;
+        return row; // Return the DOM node immediately
     }
 
     createBotStatsRow(bot) {

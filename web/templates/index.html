@@ -39,7 +39,6 @@
         </div>
 
         <!-- Bot Status and Stats Table -->
-
         <div class="table-container">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2>BOT STATUS AND STATS TABLE</h2>
@@ -94,6 +93,8 @@
                 </tbody>
             </table>
         </div>
+
+        <!-- FIXED: Changed table tbody ID to match JavaScript -->
         <div class="table-container">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2>BINANCE ACCOUNTS</h2>
@@ -114,6 +115,7 @@
                 </tbody>
             </table>
         </div>
+
         <!-- Debug Section (can be removed later) -->
         <div class="debug-section">
             <details>
@@ -167,7 +169,6 @@
                         <input type="number" id="initialHolding" name="initialHolding" step="0.01" min="0"
                             placeholder="0.00">
                     </div>
-                    <!-- ADD THIS NEW FIELD -->
                     <div class="form-group">
                         <label for="botAccount">Binance Account (Optional)</label>
                         <select id="botAccount" name="botAccount">
@@ -183,7 +184,6 @@
             </div>
         </div>
 
-        <!-- TODO -->
         <!-- Account Details Modal -->
         <div id="accountDetailModal" class="modal" style="display: none;">
             <div class="modal-content">
