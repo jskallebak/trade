@@ -2,6 +2,8 @@
 class Dashboard {
     constructor() {
         this.refreshInterval = null;
+        this.accountBalances = new Map();
+        this.totalBalance = 0;
     }
 
     init() {
@@ -17,13 +19,25 @@ class Dashboard {
         this.loadBinanceAccounts();
     }
 
+    updateTotalBalance() {
+        this.totalBalance = Array.from(this.accountBalances.values())
+            .reduce((sum, balance) => sum + balance, 0);
+
+        const totalBalanceElement = document.getElementById('totalBalance');
+        if (totalBalanceElement) {
+            totalBalanceElement.textContent = `$${this.totalBalance.toLocaleString('en-UD', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            })}`;
+        }
+        console.log(`Total Balance: $${this.totalBalance.toLocaleString()} from ${this.accountBalances.size} accounts`);
+    }
+
     async loadMetrics() {
         try {
             const response = await this.apiCall('/api/dashboard/metrics');
             const data = await response.json();
 
-            this.updateElement('totalPnl', `$${Math.abs(data.total_pnl).toLocaleString()}`,
-                data.total_pnl >= 0 ? 'metric-value positive' : 'metric-value negative');
             this.updateElement('annualizedRoi', `${data.annualized_roi}%`);
             this.updateElement('maxDrawdown', `${data.max_drawdown}%`);
             this.updateElement('uptime', `${data.uptime}%`);
@@ -182,6 +196,10 @@ class Dashboard {
                     const emptyRow = document.createElement('tr');
                     emptyRow.innerHTML = '<td colspan="5" style="text-align: center; color: #666; padding: 20px;">No accounts configured</td>';
                     tbody.appendChild(emptyRow);
+
+                    // Clear balances if no accounts
+                    this.accountBalances.clear();
+                    this.updateTotalBalance();
                 } else {
                     // Create rows and restore existing balances
                     for (const account of data) {
@@ -194,9 +212,17 @@ class Dashboard {
                             const balanceElement = document.getElementById(`balance-${account.id}`);
                             if (balanceElement) {
                                 balanceElement.textContent = previousBalance;
+
+                                // Parse and store the balances for total calculation
+                                const balanceValue = parseFloat(previousBalance.replace(/[$,]/g, ''));
+                                if (!isNaN(balanceValue)) {
+                                    this.accountBalances.set(account.id, balanceValue);
+                                }
                             }
                         }
                     }
+
+                    this.updateTotalBalance();
                 }
             }
         } catch (error) {
@@ -231,6 +257,8 @@ class Dashboard {
                 const accInfo = await response.json();
                 const balance = parseFloat(accInfo.TotalNetAssetOfUSDT || accInfo.totalNetAssetOfUsdt || 0);
 
+                this.accountBalances.set(accountId, balance);
+
                 // Update the balance (this will replace "Loading..." or update existing balance)
                 balanceElement.textContent = `$${balance.toLocaleString('en-US', {
                     minimumFractionDigits: 2,
@@ -240,9 +268,13 @@ class Dashboard {
                 // Reset any error styling that might have been applied
                 balanceElement.style.color = '';
 
+                this.updateTotalBalance();
+
             } else {
                 const error = await response.text();
                 console.error('Error getting account info:', error);
+
+                this.accountBalances.delete(accountId);
 
                 // Only show error if we don't have a previous valid balance
                 if (balanceElement.textContent === 'Loading...' || balanceElement.textContent.includes('Error') || balanceElement.textContent.includes('Network')) {
@@ -250,10 +282,14 @@ class Dashboard {
                     balanceElement.style.color = '#e53e3e';
                 }
                 // If we have a previous valid balance (starts with $), keep it
+
+                this.updateTotalBalance();
             }
         } catch (error) {
             console.error('Network error loading account balance:', error);
             const balanceElement = document.getElementById(`balance-${accountId}`);
+
+            this.accountBalances.delete(accountId)
             if (balanceElement) {
                 // Only show network error if we don't have a previous valid balance
                 if (balanceElement.textContent === 'Loading...' || balanceElement.textContent.includes('Error') || balanceElement.textContent.includes('Network')) {
@@ -262,6 +298,19 @@ class Dashboard {
                 }
                 // If we have a previous valid balance (starts with $), keep it
             }
+
+            this.updateTotalBalance();
+        }
+    }
+
+    showAccountDetailModal(account) {
+        console.log('Opening account details for:', account)
+        console.log('Account ID:', account.id)
+        const modal = document.getElementById('accountDetailmModal')
+        if (modal) {
+            this.currentAccount = account;
+
+            modal.style.display = 'flex';
         }
     }
 
@@ -365,6 +414,10 @@ class Dashboard {
     `;
 
         // Add event listeners
+        row.addEventListener('click', () => {
+            this.showAccountDetailModal(account)
+        })
+
         const editBtn = row.querySelector('.edit-account-btn');
         editBtn.addEventListener('click', () => {
             this.showEditAccountModal(account);
