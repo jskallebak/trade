@@ -25,7 +25,7 @@ class Dashboard {
 
         const totalBalanceElement = document.getElementById('totalBalance');
         if (totalBalanceElement) {
-            totalBalanceElement.textContent = `$${this.totalBalance.toLocaleString('en-UD', {
+            totalBalanceElement.textContent = `$${this.totalBalance.toLocaleString('en-US', {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2
             })}`;
