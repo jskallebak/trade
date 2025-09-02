@@ -110,6 +110,45 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 	return i, err
 }
 
+const getUsers = `-- name: GetUsers :many
+SELECT id, name, email, created_at, updated_at
+FROM users
+`
+
+type GetUsersRow struct {
+	ID        int32              `json:"id"`
+	Name      string             `json:"name"`
+	Email     string             `json:"email"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetUsers(ctx context.Context) ([]GetUsersRow, error) {
+	rows, err := q.db.Query(ctx, getUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUsersRow
+	for rows.Next() {
+		var i GetUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Email,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsers = `-- name: ListUsers :many
 SELECT id, name, email, created_at, updated_at
 FROM users

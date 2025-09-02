@@ -8,6 +8,10 @@ SELECT id, name, email, created_at, updated_at
 FROM users
 WHERE id = $1;
 
+-- name: GetUsers :many
+SELECT id, name, email, created_at, updated_at
+FROM users;
+
 -- name: GetUserByEmail :one
 SELECT id, name, email, password_hash, created_at, updated_at
 FROM users

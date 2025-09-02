@@ -8,6 +8,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type BalanceHistory struct {
+	ID               int32              `json:"id"`
+	BinanceAccountID int32              `json:"binance_account_id"`
+	TotalBalanceUsd  pgtype.Numeric     `json:"total_balance_usd"`
+	RecordedAt       pgtype.Timestamptz `json:"recorded_at"`
+}
+
 type BinanceAccount struct {
 	ID            int32              `json:"id"`
 	UserID        int32              `json:"user_id"`

@@ -31,6 +31,7 @@ class Dashboard {
             })}`;
         }
         console.log(`Total Balance: $${this.totalBalance.toLocaleString()} from ${this.accountBalances.size} accounts`);
+
     }
 
     async loadMetrics() {
@@ -41,6 +42,7 @@ class Dashboard {
             this.updateElement('annualizedRoi', `${data.annualized_roi}%`);
             this.updateElement('maxDrawdown', `${data.max_drawdown}%`);
             this.updateElement('uptime', `${data.uptime}%`);
+
         } catch (error) {
             console.error('Error loading metrics:', error);
         }
