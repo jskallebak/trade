@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -17,9 +20,10 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"trade/internal/binance"
+
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
-	"trade/internal/binance"
 )
 
 type UserHandlers struct {
@@ -1050,6 +1054,122 @@ func decimalToPgNumeric(d decimal.Decimal) (pgtype.Numeric, error) {
 	return pgNum, nil
 }
 
+func (h *UserHandlers) getClientIP(r *http.Request) string {
+	forwarded := r.Header.Get("X-Forwarded-For")
+	if forwarded != "" {
+		ips := strings.Split(forwarded, ",")
+		return strings.TrimSpace(ips[0])
+	}
+
+	realIP := r.Header.Get("X-Real-IP")
+	if realIP != "" {
+		return realIP
+	}
+
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}
+
+func (h *UserHandlers) isSensitiveHeader(headerName string) bool {
+	sensitive := []string{
+		"Authorization", "X-API-KEY", "X-API-SECRET", "Cookie", "X-Auth-Token", "Bearer", "X-Access-Token",
+	}
+
+	headerLower := strings.ToLower(headerName)
+	for _, s := range sensitive {
+		if strings.ToLower(s) == headerLower {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *UserHandlers) getBalanceReturn(w http.ResponseWriter, r *http.Request, queryFunc func(context.Context, int32) (interface{}, error), errorMsg string) {
+	ctx := r.Context()
+	userID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	balance, err := queryFunc(ctx, userID)
+	if err != nil {
+		http.Error(w, errorMsg, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(balance)
+}
+
+// Specific handlers using the generic function
+func (h *UserHandlers) GetPreviousMonthReturn(w http.ResponseWriter, r *http.Request) {
+	h.getBalanceReturn(w, r, h.db.Queries.GetUserTotalBalanceLatestCompleteMonth,
+		"Error getting complete month balance from db")
+}
+
+func (h *UserHandlers) GetPreviousYearReturn(w http.ResponseWriter, r *http.Request) {
+	h.getBalanceReturn(w, r, h.db.Queries.GetUserTotalBalanceEarliestInYear,
+		"Error getting complete year balance from db")
+}
+
+func (h *UserHandlers) GetPreviousDayReturn(w http.ResponseWriter, r *http.Request) {
+	h.getBalanceReturn(w, r, h.db.Queries.GetUserTotalBalanceLatestCompleteDay,
+		"Error getting complete day balance from db")
+}
+
+func (h *UserHandlers) webhook(w http.ResponseWriter, r *http.Request) {
+	_ = r.Context
+
+	var req struct {
+		Passphrase       string `json:"passphrase"`
+		Client           string `json:"client"`
+		Strat            string `json:"strat"`
+		TimeFrame        string `json:"timeframe"`
+		UseMargin        bool   `json:"use_margin"`
+		MarginMultiplier int    `json:"margin_multiplier"`
+		Short            bool   `json:"short"`
+		OrderAction      string `json:"order_action"`
+		BaseCurrency     string `json:"base_currency"`
+		QuoteCurrency    string `json:"quote_currency"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	params := db.CreateWebhookLogParams{
+		Method:         r.Method,
+		UrlPath:        r.URL.Path,
+		Headers:        []byte{},
+		QueryParams:    []byte{},
+		RequestBody:    []byte{},
+		ResponseStatus: pgtype.Int4{Int32: 200, Valid: true},
+		IsSuccessful:   pgtype.Bool{Bool: true, Valid: true},
+		UserAgent:      pgtype.Text{String: r.UserAgent(), Valid: true},
+	}
+
+	ipAddr, err := netip.ParseAddr(h.getClientIP(r))
+	if err != nil {
+		http.Error(w, "failed to parse IP address", http.StatusInternalServerError)
+	}
+	params.IpAddress = &ipAddr
+
+	for name, _ := range r.Header {
+		if !h.isSensitiveHeader(name) {
+			//params.Headers[name] = values[0]
+		}
+	}
+
+	fmt.Println(req, params)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(req)
+}
+
 func SetupRoutes(db *database.Database) *mux.Router {
 	userHandler := NewUserHandler(db)
 	r := mux.NewRouter()
@@ -1064,6 +1184,7 @@ func SetupRoutes(db *database.Database) *mux.Router {
 	r.HandleFunc("/login", loginPageHandler).Methods("GET")               // Login page
 	r.HandleFunc("/api/login", userHandler.Login).Methods("POST")         // Login API
 	r.HandleFunc("/api/register", userHandler.CreateUser).Methods("POST") // Registration API (optional)
+	r.HandleFunc("/api/webhook", userHandler.webhook).Methods("POST")
 
 	// Protected web pages (require authentication)
 	r.HandleFunc("/", helloWorld).Methods("GET")                // Dashboard/home
@@ -1087,6 +1208,9 @@ func SetupRoutes(db *database.Database) *mux.Router {
 	r.HandleFunc("/api/dashboard/bot-stats", userHandler.GetBotStats).Methods("GET")
 	r.HandleFunc("/api/dashboard/positions", userHandler.GetPositions).Methods("GET")
 
+	r.HandleFunc("/api/dashboard/monthly-return", userHandler.GetPreviousMonthReturn).Methods("GET")
+	r.HandleFunc("/api/dashboard/yearly-return", userHandler.GetPreviousYearReturn).Methods("GET")
+	r.HandleFunc("/api/dashboard/daily-return", userHandler.GetPreviousDayReturn).Methods("GET")
 	// Bot api endpoints
 	r.HandleFunc("/api/bots", userHandler.CreateBot).Methods("POST")
 	r.HandleFunc("/api/bots", userHandler.GetUserBots).Methods("GET")
@@ -1102,5 +1226,6 @@ func SetupRoutes(db *database.Database) *mux.Router {
 	r.HandleFunc("/api/binance-accounts", userHandler.GetUserBinanceAccounts).Methods("GET")
 	r.HandleFunc("/api/binance-accounts/{id}", userHandler.DeleteBinanceAccount).Methods("DELETE")
 	r.HandleFunc("/api/binance-accounts/{id}", userHandler.UpdateBinanceAccount).Methods("PUT")
+
 	return r
 }

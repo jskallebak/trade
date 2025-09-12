@@ -46,3 +46,6 @@ FROM bots b
 LEFT JOIN binance_accounts ba ON b.binance_account_id = ba.id
 WHERE b.user_id = $1;
 
+-- name: LogWebhook :one
+
+

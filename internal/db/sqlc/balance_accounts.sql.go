@@ -105,6 +105,143 @@ func (q *Queries) GetLatestBalanceByAccount(ctx context.Context, binanceAccountI
 	return i, err
 }
 
+const getLatestCompleteDayBalance = `-- name: GetLatestCompleteDayBalance :many
+WITH latest_complete_day AS (
+    SELECT DATE_TRUNC('day', MAX(recorded_at)) as complete_day
+    FROM balance_history 
+    WHERE DATE_TRUNC('day', recorded_at) < DATE_TRUNC('day', NOW())
+),
+day_balances AS (
+    SELECT 
+        bh.binance_account_id,
+        bh.total_balance_usd,
+        bh.recorded_at,
+        ba.name as account_name,
+        ba.user_id,
+        ROW_NUMBER() OVER (
+            PARTITION BY bh.binance_account_id 
+            ORDER BY bh.recorded_at DESC
+        ) as rn
+    FROM balance_history bh
+    JOIN binance_accounts ba ON bh.binance_account_id = ba.id
+    CROSS JOIN latest_complete_day lcd
+    WHERE DATE_TRUNC('day', bh.recorded_at) = lcd.complete_day
+      AND ba.is_active = true
+)
+SELECT 
+    binance_account_id,
+    account_name,
+    user_id,
+    total_balance_usd,
+    recorded_at
+FROM day_balances 
+WHERE rn = 1
+ORDER BY user_id, account_name
+`
+
+type GetLatestCompleteDayBalanceRow struct {
+	BinanceAccountID int32              `json:"binance_account_id"`
+	AccountName      string             `json:"account_name"`
+	UserID           int32              `json:"user_id"`
+	TotalBalanceUsd  pgtype.Numeric     `json:"total_balance_usd"`
+	RecordedAt       pgtype.Timestamptz `json:"recorded_at"`
+}
+
+func (q *Queries) GetLatestCompleteDayBalance(ctx context.Context) ([]GetLatestCompleteDayBalanceRow, error) {
+	rows, err := q.db.Query(ctx, getLatestCompleteDayBalance)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetLatestCompleteDayBalanceRow
+	for rows.Next() {
+		var i GetLatestCompleteDayBalanceRow
+		if err := rows.Scan(
+			&i.BinanceAccountID,
+			&i.AccountName,
+			&i.UserID,
+			&i.TotalBalanceUsd,
+			&i.RecordedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getLatestCompleteDayBalanceByUser = `-- name: GetLatestCompleteDayBalanceByUser :many
+WITH latest_complete_day AS (
+    SELECT DATE_TRUNC('day', MAX(recorded_at)) as complete_day
+    FROM balance_history 
+    WHERE DATE_TRUNC('day', recorded_at) < DATE_TRUNC('day', NOW())
+),
+day_balances AS (
+    SELECT 
+        bh.binance_account_id,
+        bh.total_balance_usd,
+        bh.recorded_at,
+        ba.name as account_name,
+        ba.user_id,
+        ROW_NUMBER() OVER (
+            PARTITION BY bh.binance_account_id 
+            ORDER BY bh.recorded_at DESC
+        ) as rn
+    FROM balance_history bh
+    JOIN binance_accounts ba ON bh.binance_account_id = ba.id
+    CROSS JOIN latest_complete_day lcd
+    WHERE DATE_TRUNC('day', bh.recorded_at) = lcd.complete_day
+      AND ba.is_active = true
+      AND ba.user_id = $1
+)
+SELECT 
+    binance_account_id,
+    account_name,
+    user_id,
+    total_balance_usd,
+    recorded_at
+FROM day_balances 
+WHERE rn = 1
+ORDER BY account_name
+`
+
+type GetLatestCompleteDayBalanceByUserRow struct {
+	BinanceAccountID int32              `json:"binance_account_id"`
+	AccountName      string             `json:"account_name"`
+	UserID           int32              `json:"user_id"`
+	TotalBalanceUsd  pgtype.Numeric     `json:"total_balance_usd"`
+	RecordedAt       pgtype.Timestamptz `json:"recorded_at"`
+}
+
+func (q *Queries) GetLatestCompleteDayBalanceByUser(ctx context.Context, userID int32) ([]GetLatestCompleteDayBalanceByUserRow, error) {
+	rows, err := q.db.Query(ctx, getLatestCompleteDayBalanceByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetLatestCompleteDayBalanceByUserRow
+	for rows.Next() {
+		var i GetLatestCompleteDayBalanceByUserRow
+		if err := rows.Scan(
+			&i.BinanceAccountID,
+			&i.AccountName,
+			&i.UserID,
+			&i.TotalBalanceUsd,
+			&i.RecordedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserTotalBalance = `-- name: GetUserTotalBalance :one
 SELECT COALESCE(SUM(bh.total_balance_usd), 0) as total_balance_usd
 FROM (
@@ -118,6 +255,116 @@ FROM (
 
 func (q *Queries) GetUserTotalBalance(ctx context.Context, userID int32) (interface{}, error) {
 	row := q.db.QueryRow(ctx, getUserTotalBalance, userID)
+	var total_balance_usd interface{}
+	err := row.Scan(&total_balance_usd)
+	return total_balance_usd, err
+}
+
+const getUserTotalBalanceEarliestInYear = `-- name: GetUserTotalBalanceEarliestInYear :one
+WITH target_year AS (
+    SELECT 
+        COALESCE(
+            (SELECT MAX(DATE_TRUNC('year', recorded_at)) 
+             FROM balance_history 
+             WHERE DATE_TRUNC('year', recorded_at) < DATE_TRUNC('year', NOW())),
+            DATE_TRUNC('year', NOW())
+        ) as year_start
+),
+earliest_balances AS (
+    SELECT DISTINCT ON (bh.binance_account_id) 
+        bh.binance_account_id,
+        bh.total_balance_usd
+    FROM balance_history bh
+    JOIN binance_accounts ba ON bh.binance_account_id = ba.id
+    CROSS JOIN target_year ty
+    WHERE DATE_TRUNC('year', bh.recorded_at) = ty.year_start
+        AND ba.is_active = true
+        AND ba.user_id = $1
+    ORDER BY bh.binance_account_id, bh.recorded_at ASC
+)
+SELECT
+    COALESCE(SUM(total_balance_usd), 0) as total_balance_usd
+FROM earliest_balances
+`
+
+func (q *Queries) GetUserTotalBalanceEarliestInYear(ctx context.Context, userID int32) (interface{}, error) {
+	row := q.db.QueryRow(ctx, getUserTotalBalanceEarliestInYear, userID)
+	var total_balance_usd interface{}
+	err := row.Scan(&total_balance_usd)
+	return total_balance_usd, err
+}
+
+const getUserTotalBalanceLatestCompleteDay = `-- name: GetUserTotalBalanceLatestCompleteDay :one
+WITH latest_complete_day AS (
+    SELECT DATE_TRUNC('day', MAX(recorded_at)) as complete_day
+    FROM balance_history 
+    WHERE DATE_TRUNC('day', recorded_at) < DATE_TRUNC('day', NOW())
+),
+day_balances AS (
+    SELECT 
+        bh.binance_account_id,
+        bh.total_balance_usd,
+        ba.user_id,
+        ROW_NUMBER() OVER (
+            PARTITION BY bh.binance_account_id 
+            ORDER BY bh.recorded_at DESC
+        ) as rn
+    FROM balance_history bh
+    JOIN binance_accounts ba ON bh.binance_account_id = ba.id
+    CROSS JOIN latest_complete_day lcd
+    WHERE DATE_TRUNC('day', bh.recorded_at) = lcd.complete_day
+      AND ba.is_active = true
+      AND ba.user_id = $1
+)
+SELECT 
+    COALESCE(SUM(total_balance_usd), 0) as total_balance_usd
+FROM day_balances 
+WHERE rn = 1
+`
+
+func (q *Queries) GetUserTotalBalanceLatestCompleteDay(ctx context.Context, userID int32) (interface{}, error) {
+	row := q.db.QueryRow(ctx, getUserTotalBalanceLatestCompleteDay, userID)
+	var total_balance_usd interface{}
+	err := row.Scan(&total_balance_usd)
+	return total_balance_usd, err
+}
+
+const getUserTotalBalanceLatestCompleteMonth = `-- name: GetUserTotalBalanceLatestCompleteMonth :one
+WITH target_month AS (
+    SELECT 
+        CASE 
+            WHEN EXISTS (
+                SELECT 1 FROM balance_history 
+                WHERE DATE_TRUNC('month', recorded_at) < DATE_TRUNC('month', NOW())
+            )
+            THEN DATE_TRUNC('month', NOW()) - INTERVAL '1 month'  -- Last complete month
+            ELSE DATE_TRUNC('month', NOW())                       -- Current month as fallback
+        END as month_start
+),
+month_balances AS (
+    SELECT 
+        bh.binance_account_id, 
+        bh.total_balance_usd,
+        ba.user_id,
+        ROW_NUMBER() OVER (
+            PARTITION BY bh.binance_account_id
+            ORDER BY bh.recorded_at ASC  -- EARLIEST instance from the target month
+        ) as rn
+    FROM balance_history bh
+    JOIN binance_accounts ba ON bh.binance_account_id = ba.id
+    CROSS JOIN target_month tm
+    WHERE DATE_TRUNC('month', bh.recorded_at) = tm.month_start
+        AND ba.is_active = true
+        AND ba.user_id = $1
+)
+SELECT
+    COALESCE(SUM(total_balance_usd), 0) as total_balance_usd
+FROM month_balances
+WHERE rn = 1
+`
+
+func (q *Queries) GetUserTotalBalanceLatestCompleteMonth(ctx context.Context, userID int32) (interface{}, error) {
+	row := q.db.QueryRow(ctx, getUserTotalBalanceLatestCompleteMonth, userID)
 	var total_balance_usd interface{}
 	err := row.Scan(&total_balance_usd)
 	return total_balance_usd, err

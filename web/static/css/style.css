@@ -556,4 +556,10 @@ footer {
     }
 }
 
+.text-positive {
+    color: #38a169 !important;
+}
 
+.text-negative {
+    color: #e53e3e !important;
+}

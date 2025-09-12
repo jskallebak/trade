@@ -57,7 +57,9 @@ func (s BalanceService) BalanceSnapshot(ch chan<- string) {
 			info, err := client.GetMarginAccountInfo()
 			if err != nil {
 				fmt.Printf("error getting margin account info: %v", err)
-				return
+				fmt.Println("Sleep for 1 minute")
+				time.Sleep(time.Minute)
+				continue
 			}
 
 			// Convert info.TotalNetAssetOfUSDT to pgtype.Numeric

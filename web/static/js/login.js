@@ -16,7 +16,7 @@ class LoginForm {
 
     setupEventListeners() {
         this.form.addEventListener('submit', (e) => this.handleSubmit(e));
-        
+
         // Enter key handling for better UX
         [this.emailInput, this.passwordInput].forEach(input => {
             input.addEventListener('keypress', (e) => {
@@ -29,10 +29,10 @@ class LoginForm {
 
     async handleSubmit(e) {
         e.preventDefault();
-        
+
         this.hideMessages();
         this.setLoading(true);
-        
+
         const credentials = {
             email: this.emailInput.value.trim(),
             password: this.passwordInput.value
@@ -51,9 +51,9 @@ class LoginForm {
                 },
                 body: JSON.stringify(credentials)
             });
-            
+
             const data = await response.json();
-            
+
             if (response.ok) {
                 await this.handleLoginSuccess(data);
             } else {
@@ -97,13 +97,13 @@ class LoginForm {
     async handleLoginSuccess(data) {
         // Store JWT token
         localStorage.setItem('authToken', data.token);
-        
+
         // Show success message
         this.showSuccess('Login successful! Redirecting...');
-        
+
         // Clear form
         this.form.reset();
-        
+
         // Redirect to dashboard
         setTimeout(() => {
             window.location.href = '/';
@@ -119,7 +119,7 @@ class LoginForm {
     setLoading(isLoading) {
         this.loginBtn.disabled = isLoading;
         this.loginBtn.textContent = isLoading ? 'Signing in...' : 'Sign In';
-        
+
         // Disable inputs during loading
         this.emailInput.disabled = isLoading;
         this.passwordInput.disabled = isLoading;
@@ -158,7 +158,7 @@ class LoginForm {
                     'Authorization': 'Bearer ' + token
                 }
             });
-            
+
             if (response.ok) {
                 // Token is valid, redirect to dashboard
                 window.location.href = '/';

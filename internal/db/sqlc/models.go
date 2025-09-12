@@ -5,6 +5,8 @@
 package db
 
 import (
+	"net/netip"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -51,4 +53,23 @@ type User struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 	PasswordHash string             `json:"password_hash"`
+}
+
+type WebhookLog struct {
+	ID               int32              `json:"id"`
+	WebhookSource    string             `json:"webhook_source"`
+	EventType        pgtype.Text        `json:"event_type"`
+	Method           string             `json:"method"`
+	UrlPath          string             `json:"url_path"`
+	Headers          []byte             `json:"headers"`
+	QueryParams      []byte             `json:"query_params"`
+	RequestBody      []byte             `json:"request_body"`
+	ResponseStatus   pgtype.Int4        `json:"response_status"`
+	ResponseBody     pgtype.Text        `json:"response_body"`
+	IpAddress        *netip.Addr        `json:"ip_address"`
+	UserAgent        pgtype.Text        `json:"user_agent"`
+	ProcessingTimeMs pgtype.Int4        `json:"processing_time_ms"`
+	ErrorMessage     pgtype.Text        `json:"error_message"`
+	IsSuccessful     pgtype.Bool        `json:"is_successful"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 }
