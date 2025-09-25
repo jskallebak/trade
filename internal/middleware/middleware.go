@@ -11,7 +11,6 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		method := r.Method
 		url := r.RequestURI
 		ip := r.RemoteAddr
-
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		duration := time.Since(start)

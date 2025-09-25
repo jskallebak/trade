@@ -15,6 +15,8 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			r.URL.Path == "/logout" ||
 			r.URL.Path == "/api/logout" ||
 			r.URL.Path == "/api/webhook" ||
+			r.URL.Path == "api/bbb" ||
+			strings.HasPrefix(r.URL.Path, "/test/") ||
 			strings.HasPrefix(r.URL.Path, "/static/") {
 			next.ServeHTTP(w, r)
 			return

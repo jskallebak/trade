@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"net"
 	"net/http"
-	"net/netip"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"trade/internal/auth"
 	"trade/internal/database"
@@ -24,14 +23,66 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
+
+	bn "github.com/adshao/go-binance/v2"
 )
 
 type UserHandlers struct {
-	db *database.Database
+	db      *database.Database
+	clients map[string]*bn.Client
+	mu      *sync.RWMutex
 }
 
 func NewUserHandler(db *database.Database) *UserHandlers {
-	return &UserHandlers{db: db}
+	return &UserHandlers{
+		db:      db,
+		clients: make(map[string]*bn.Client),
+		mu:      &sync.RWMutex{},
+	}
+}
+
+func (h *UserHandlers) GetOrCreateClient(apiKey, apiSecret, name string) *bn.Client {
+	h.mu.RLock()
+	if client, exists := h.clients[name]; exists {
+		h.mu.RUnlock()
+		return client
+	}
+	h.mu.RUnlock()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Double-check in case another goroutine created it
+	if client, exists := h.clients[name]; exists {
+		return client
+	}
+
+	if apiKey != "" || apiSecret != "" {
+		client := bn.NewClient(apiKey, apiSecret)
+
+		h.clients[name] = client
+		return client
+	}
+
+	return nil
+}
+
+func (h *UserHandlers) CacheUserClients(ctx context.Context, userID int32) error {
+	userID, ok := ctx.Value("userID").(int32)
+	if !ok {
+		return fmt.Errorf("User ID not found in context")
+	}
+
+	accounts, err := h.db.Queries.GetUserBinanceAccounts(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	for _, account := range accounts {
+		h.GetOrCreateClient(account.ApiKey, account.ApiSecret, account.Name)
+	}
+
+	return nil
 }
 
 func (h *UserHandlers) CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +138,6 @@ func (h *UserHandlers) ListUsers(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(users)
-
 }
 
 func (h *UserHandlers) GetUser(w http.ResponseWriter, r *http.Request) {
@@ -202,8 +252,18 @@ func loginPageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func dashboardHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles("web/templates/dashboard.html") // You'll create this
+func (h *UserHandlers) dashboardHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	_, ok := ctx.Value("userID").(int32)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
+	// h.CacheUserClients(ctx, userID)
+
+	tmpl, err := template.ParseFiles("web/templates/index.html") // You'll create this
 	if err != nil {
 		http.Error(w, "Failed to parse template", http.StatusInternalServerError)
 		return
@@ -316,7 +376,6 @@ func (h UserHandlers) Login(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(loginResponse)
-
 }
 
 func (h UserHandlers) GetProfile(w http.ResponseWriter, r *http.Request) {
@@ -1054,40 +1113,7 @@ func decimalToPgNumeric(d decimal.Decimal) (pgtype.Numeric, error) {
 	return pgNum, nil
 }
 
-func (h *UserHandlers) getClientIP(r *http.Request) string {
-	forwarded := r.Header.Get("X-Forwarded-For")
-	if forwarded != "" {
-		ips := strings.Split(forwarded, ",")
-		return strings.TrimSpace(ips[0])
-	}
-
-	realIP := r.Header.Get("X-Real-IP")
-	if realIP != "" {
-		return realIP
-	}
-
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return ip
-}
-
-func (h *UserHandlers) isSensitiveHeader(headerName string) bool {
-	sensitive := []string{
-		"Authorization", "X-API-KEY", "X-API-SECRET", "Cookie", "X-Auth-Token", "Bearer", "X-Access-Token",
-	}
-
-	headerLower := strings.ToLower(headerName)
-	for _, s := range sensitive {
-		if strings.ToLower(s) == headerLower {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *UserHandlers) getBalanceReturn(w http.ResponseWriter, r *http.Request, queryFunc func(context.Context, int32) (interface{}, error), errorMsg string) {
+func (h *UserHandlers) getBalanceReturn(w http.ResponseWriter, r *http.Request, queryFunc func(context.Context, int32) (any, error), errorMsg string) {
 	ctx := r.Context()
 	userID, ok := ctx.Value("userID").(int32)
 	if !ok {
@@ -1121,53 +1147,8 @@ func (h *UserHandlers) GetPreviousDayReturn(w http.ResponseWriter, r *http.Reque
 		"Error getting complete day balance from db")
 }
 
-func (h *UserHandlers) webhook(w http.ResponseWriter, r *http.Request) {
-	_ = r.Context
-
-	var req struct {
-		Passphrase       string `json:"passphrase"`
-		Client           string `json:"client"`
-		Strat            string `json:"strat"`
-		TimeFrame        string `json:"timeframe"`
-		UseMargin        bool   `json:"use_margin"`
-		MarginMultiplier int    `json:"margin_multiplier"`
-		Short            bool   `json:"short"`
-		OrderAction      string `json:"order_action"`
-		BaseCurrency     string `json:"base_currency"`
-		QuoteCurrency    string `json:"quote_currency"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	params := db.CreateWebhookLogParams{
-		Method:         r.Method,
-		UrlPath:        r.URL.Path,
-		Headers:        []byte{},
-		QueryParams:    []byte{},
-		RequestBody:    []byte{},
-		ResponseStatus: pgtype.Int4{Int32: 200, Valid: true},
-		IsSuccessful:   pgtype.Bool{Bool: true, Valid: true},
-		UserAgent:      pgtype.Text{String: r.UserAgent(), Valid: true},
-	}
-
-	ipAddr, err := netip.ParseAddr(h.getClientIP(r))
-	if err != nil {
-		http.Error(w, "failed to parse IP address", http.StatusInternalServerError)
-	}
-	params.IpAddress = &ipAddr
-
-	for name, _ := range r.Header {
-		if !h.isSensitiveHeader(name) {
-			//params.Headers[name] = values[0]
-		}
-	}
-
-	fmt.Println(req, params)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(req)
+func (h *UserHandlers) testCache(w http.ResponseWriter, r *http.Request) {
+	h.GetOrCreateClient("", "", "main")
 }
 
 func SetupRoutes(db *database.Database) *mux.Router {
@@ -1184,11 +1165,12 @@ func SetupRoutes(db *database.Database) *mux.Router {
 	r.HandleFunc("/login", loginPageHandler).Methods("GET")               // Login page
 	r.HandleFunc("/api/login", userHandler.Login).Methods("POST")         // Login API
 	r.HandleFunc("/api/register", userHandler.CreateUser).Methods("POST") // Registration API (optional)
-	r.HandleFunc("/api/webhook", userHandler.webhook).Methods("POST")
+	r.HandleFunc("/api/webhook", userHandler.Webhook).Methods("POST")
 
 	// Protected web pages (require authentication)
-	r.HandleFunc("/", helloWorld).Methods("GET")                // Dashboard/home
-	r.HandleFunc("/dashboard", dashboardHandler).Methods("GET") // Dashboard page
+	// r.HandleFunc("/", userHandler.testCache).Methods("GET")                 // Dashboard/home
+	r.HandleFunc("/", userHandler.dashboardHandler).Methods("GET")          // Dashboard page
+	r.HandleFunc("/dashboard", userHandler.dashboardHandler).Methods("GET") // Dashboard page
 	// r.HandleFunc("/profile", profilePageHandler).Methods("GET") // Profile page
 
 	// Logout route (can be accessed both authenticated and unauthenticated)
@@ -1226,6 +1208,10 @@ func SetupRoutes(db *database.Database) *mux.Router {
 	r.HandleFunc("/api/binance-accounts", userHandler.GetUserBinanceAccounts).Methods("GET")
 	r.HandleFunc("/api/binance-accounts/{id}", userHandler.DeleteBinanceAccount).Methods("DELETE")
 	r.HandleFunc("/api/binance-accounts/{id}", userHandler.UpdateBinanceAccount).Methods("PUT")
+
+	// Tests
+	r.HandleFunc("/test/btb", userHandler.BnTestBiance).Methods("GET")
+	r.HandleFunc("/test/ccc", userHandler.BnGetMarginAccountInfo).Methods("GET")
 
 	return r
 }

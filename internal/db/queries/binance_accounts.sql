@@ -4,7 +4,7 @@ VALUES ($1, $2, $3, $4, $5)
 RETURNING id, user_id, name, api_key, base_url, is_active, created_at, updated_at;
 
 -- name: GetUserBinanceAccounts :many  
-SELECT id, user_id, name, api_key, base_url, is_active, created_at, updated_at
+SELECT id, user_id, name, api_key, api_secret, base_url, is_active, created_at, updated_at
 FROM binance_accounts 
 WHERE user_id = $1 AND is_active = true;
 

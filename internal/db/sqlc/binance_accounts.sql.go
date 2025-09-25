@@ -151,7 +151,7 @@ func (q *Queries) GetInactiveBinanceAccount(ctx context.Context, arg GetInactive
 }
 
 const getUserBinanceAccounts = `-- name: GetUserBinanceAccounts :many
-SELECT id, user_id, name, api_key, base_url, is_active, created_at, updated_at
+SELECT id, user_id, name, api_key, api_secret, base_url, is_active, created_at, updated_at
 FROM binance_accounts 
 WHERE user_id = $1 AND is_active = true
 `
@@ -161,6 +161,7 @@ type GetUserBinanceAccountsRow struct {
 	UserID    int32              `json:"user_id"`
 	Name      string             `json:"name"`
 	ApiKey    string             `json:"api_key"`
+	ApiSecret string             `json:"api_secret"`
 	BaseUrl   pgtype.Text        `json:"base_url"`
 	IsActive  pgtype.Bool        `json:"is_active"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
@@ -181,6 +182,7 @@ func (q *Queries) GetUserBinanceAccounts(ctx context.Context, userID int32) ([]G
 			&i.UserID,
 			&i.Name,
 			&i.ApiKey,
+			&i.ApiSecret,
 			&i.BaseUrl,
 			&i.IsActive,
 			&i.CreatedAt,
