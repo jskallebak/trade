@@ -17,9 +17,9 @@ import (
 	"trade/internal/middleware"
 	"trade/internal/models"
 
-	"github.com/gorilla/mux"
-
 	"trade/internal/binance"
+
+	"github.com/gorilla/mux"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
@@ -31,6 +31,7 @@ type UserHandlers struct {
 	db      *database.Database
 	clients map[string]*bn.Client
 	mu      *sync.RWMutex
+	userID  int32
 }
 
 func NewUserHandler(db *database.Database) *UserHandlers {
@@ -39,50 +40,6 @@ func NewUserHandler(db *database.Database) *UserHandlers {
 		clients: make(map[string]*bn.Client),
 		mu:      &sync.RWMutex{},
 	}
-}
-
-func (h *UserHandlers) GetOrCreateClient(apiKey, apiSecret, name string) *bn.Client {
-	h.mu.RLock()
-	if client, exists := h.clients[name]; exists {
-		h.mu.RUnlock()
-		return client
-	}
-	h.mu.RUnlock()
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	// Double-check in case another goroutine created it
-	if client, exists := h.clients[name]; exists {
-		return client
-	}
-
-	if apiKey != "" || apiSecret != "" {
-		client := bn.NewClient(apiKey, apiSecret)
-
-		h.clients[name] = client
-		return client
-	}
-
-	return nil
-}
-
-func (h *UserHandlers) CacheUserClients(ctx context.Context, userID int32) error {
-	userID, ok := ctx.Value("userID").(int32)
-	if !ok {
-		return fmt.Errorf("User ID not found in context")
-	}
-
-	accounts, err := h.db.Queries.GetUserBinanceAccounts(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	for _, account := range accounts {
-		h.GetOrCreateClient(account.ApiKey, account.ApiSecret, account.Name)
-	}
-
-	return nil
 }
 
 func (h *UserHandlers) CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +61,7 @@ func (h *UserHandlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	password_hash, err := auth.HashPassword(req.Password)
+	passwordHash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		http.Error(w, "Error hashing password", http.StatusInternalServerError)
 		return
@@ -113,7 +70,7 @@ func (h *UserHandlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 	params := db.CreateUserParams{
 		Name:         req.Name,
 		Email:        req.Email,
-		PasswordHash: password_hash,
+		PasswordHash: passwordHash,
 	}
 
 	user, err := h.db.Queries.CreateUser(ctx, params)
@@ -235,7 +192,7 @@ func (h *UserHandlers) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func loginPageHandler(w http.ResponseWriter, r *http.Request) {
+func (h *UserHandlers) loginPageHandler(w http.ResponseWriter, r *http.Request) {
 	tmpl, err := template.ParseFiles("web/templates/login.html")
 	if err != nil {
 		http.Error(w, "Failed to parse template", http.StatusInternalServerError)
@@ -255,13 +212,17 @@ func loginPageHandler(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandlers) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	_, ok := ctx.Value("userID").(int32)
+	userID, ok := ctx.Value("userID").(int32)
 	if !ok {
 		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
 		return
 	}
+	h.userID = userID
 
-	// h.CacheUserClients(ctx, userID)
+	err := h.CacheUserClients(ctx, h.userID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error caching user clients %v", err), http.StatusInternalServerError)
+	}
 
 	tmpl, err := template.ParseFiles("web/templates/index.html") // You'll create this
 	if err != nil {
@@ -381,13 +342,7 @@ func (h UserHandlers) Login(w http.ResponseWriter, r *http.Request) {
 func (h UserHandlers) GetProfile(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	userID, ok := ctx.Value("userID").(int32)
-	if !ok {
-		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
-		return
-	}
-
-	user, err := h.db.Queries.GetUser(ctx, userID)
+	user, err := h.db.Queries.GetUser(ctx, h.userID)
 	if err != nil {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
@@ -451,13 +406,8 @@ func (h UserHandlers) GetBotStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	userID, ok := ctx.Value("userID").(int32)
-	if !ok {
-		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
-		return
-	}
 
-	bots, err := h.db.Queries.GetUserBotsWithAccounts(ctx, userID)
+	bots, err := h.db.Queries.GetUserBotsWithAccounts(ctx, h.userID)
 	if err != nil {
 		http.Error(w, "Error getting bots from DB", http.StatusInternalServerError)
 		return
@@ -512,12 +462,6 @@ func (h UserHandlers) GetBotStats(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandlers) UpdateBot(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	userID, ok := ctx.Value("userID").(int32)
-	if !ok {
-		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
-		return
-	}
-
 	vars := mux.Vars(r)
 	botIDStr := vars["botID"]
 
@@ -555,7 +499,7 @@ func (h *UserHandlers) UpdateBot(w http.ResponseWriter, r *http.Request) {
 		// Validate user owns the account
 		_, err := h.db.Queries.GetBinanceAccount(ctx, db.GetBinanceAccountParams{
 			ID:     *req.BinanceAccountID,
-			UserID: userID,
+			UserID: h.userID,
 		})
 		if err != nil {
 			http.Error(w, "Binance account not found or not owned by user", http.StatusNotFound)
@@ -563,7 +507,7 @@ func (h *UserHandlers) UpdateBot(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Check if account is already used by another bot (excluding current bot)
-		existingBots, err := h.db.Queries.GetUserBots(ctx, userID)
+		existingBots, err := h.db.Queries.GetUserBots(ctx, h.userID)
 		if err != nil {
 			http.Error(w, "Error checking existing bots", http.StatusInternalServerError)
 			return
@@ -587,7 +531,7 @@ func (h *UserHandlers) UpdateBot(w http.ResponseWriter, r *http.Request) {
 
 	params := db.UpdateBotParams{
 		ID:               int32(botID),
-		UserID:           userID,
+		UserID:           h.userID,
 		Name:             req.Name,
 		Strategy:         req.Strategy,
 		InitialHolding:   initialHolding,
@@ -662,12 +606,6 @@ func (h *UserHandlers) CreateBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	UserID, ok := ctx.Value("userID").(int32)
-	if !ok {
-		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
-		return
-	}
-
 	if req.Name == "" || req.Strategy == "" {
 		http.Error(w, "Name and Strategy are required", http.StatusBadRequest)
 		return
@@ -684,14 +622,14 @@ func (h *UserHandlers) CreateBot(w http.ResponseWriter, r *http.Request) {
 		// Check if account is owned by user
 		_, err := h.db.Queries.GetBinanceAccount(ctx, db.GetBinanceAccountParams{
 			ID:     *req.BinanceAccountID,
-			UserID: UserID,
+			UserID: h.userID,
 		})
 		if err != nil {
 			http.Error(w, "Binance account not found or not owned by user", http.StatusNotFound)
 			return
 		}
 
-		existingBots, err := h.db.Queries.GetUserBots(ctx, UserID)
+		existingBots, err := h.db.Queries.GetUserBots(ctx, h.userID)
 		if err != nil {
 			http.Error(w, "Error checking existing bots", http.StatusInternalServerError)
 			return
@@ -710,7 +648,7 @@ func (h *UserHandlers) CreateBot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	params := db.CreateBotParams{
-		UserID:           UserID,
+		UserID:           h.userID,
 		Name:             req.Name,
 		Strategy:         req.Strategy,
 		InitialHolding:   initialHolding,
@@ -734,13 +672,7 @@ func (h *UserHandlers) CreateBot(w http.ResponseWriter, r *http.Request) {
 func (h UserHandlers) GetUserBots(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	userID, ok := ctx.Value("userID").(int32)
-	if !ok {
-		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
-		return
-	}
-
-	bots, err := h.db.Queries.GetUserBots(ctx, userID)
+	bots, err := h.db.Queries.GetUserBots(ctx, h.userID)
 	if err != nil {
 		http.Error(w, "Error getting bots from DB", http.StatusInternalServerError)
 		return
@@ -816,15 +748,9 @@ func (h UserHandlers) DeleteBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := ctx.Value("userID").(int32)
-	if !ok {
-		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
-		return
-	}
-
 	params := db.DeleteBotParams{
 		ID:     int32(botID),
-		UserID: userID,
+		UserID: h.userID,
 	}
 
 	err = h.db.Queries.DeleteBot(ctx, params)
@@ -916,12 +842,6 @@ func (h *UserHandlers) GetMarginAccountInfo(w http.ResponseWriter, r *http.Reque
 func (h *UserHandlers) UpdateBinanceAccount(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	userID, ok := ctx.Value("userID").(int32)
-	if !ok {
-		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
-		return
-	}
-
 	vars := mux.Vars(r)
 	idStr := vars["id"]
 
@@ -943,7 +863,7 @@ func (h *UserHandlers) UpdateBinanceAccount(w http.ResponseWriter, r *http.Reque
 
 	getParams := db.GetBinanceAccountParams{
 		ID:     int32(accID),
-		UserID: userID,
+		UserID: h.userID,
 	}
 
 	acc, err := h.db.Queries.GetBinanceAccount(ctx, getParams)
@@ -958,7 +878,7 @@ func (h *UserHandlers) UpdateBinanceAccount(w http.ResponseWriter, r *http.Reque
 
 	updateParams := db.UpdateBinanceAccountInfoParams{
 		ID:      int32(accID),
-		UserID:  userID,
+		UserID:  h.userID,
 		Name:    acc.Name,
 		BaseUrl: acc.BaseUrl,
 	}
@@ -990,8 +910,8 @@ func (h *UserHandlers) CreateBinanceAccount(w http.ResponseWriter, r *http.Reque
 
 	var req struct {
 		Name      string `json:"name"`
-		ApiKey    string `json:"api_key"`
-		ApiSecret string `json:"api_secret"`
+		APIKey    string `json:"api_key"`
+		APISecret string `json:"api_secret"`
 		BaseURL   string `json:"base_url"`
 	}
 
@@ -1000,14 +920,8 @@ func (h *UserHandlers) CreateBinanceAccount(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	userID, ok := ctx.Value("userID").(int32)
-	if !ok {
-		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
-		return
-	}
-
 	existingAccount, err := h.db.Queries.GetInactiveBinanceAccount(ctx, db.GetInactiveBinanceAccountParams{
-		UserID: userID,
+		UserID: h.userID,
 		Name:   req.Name,
 	})
 
@@ -1015,9 +929,9 @@ func (h *UserHandlers) CreateBinanceAccount(w http.ResponseWriter, r *http.Reque
 		// Account exists but is inactive - reactivate it
 		updatedAccount, err := h.db.Queries.ReactivateBinanceAccount(ctx, db.ReactivateBinanceAccountParams{
 			ID:        existingAccount.ID,
-			UserID:    userID,
-			ApiKey:    req.ApiKey,
-			ApiSecret: req.ApiSecret,
+			UserID:    h.userID,
+			ApiKey:    req.APIKey,
+			ApiSecret: req.APISecret,
 			BaseUrl:   pgtype.Text{String: req.BaseURL, Valid: true},
 		})
 		if err != nil {
@@ -1030,10 +944,10 @@ func (h *UserHandlers) CreateBinanceAccount(w http.ResponseWriter, r *http.Reque
 	}
 
 	params := db.CreateBinanceAccountParams{
-		UserID:    userID,
+		UserID:    h.userID,
 		Name:      req.Name,
-		ApiKey:    req.ApiKey,
-		ApiSecret: req.ApiSecret,
+		ApiKey:    req.APIKey,
+		ApiSecret: req.APISecret,
 		BaseUrl:   pgtype.Text{String: req.BaseURL, Valid: true},
 	}
 
@@ -1053,13 +967,8 @@ func (h *UserHandlers) CreateBinanceAccount(w http.ResponseWriter, r *http.Reque
 
 func (h *UserHandlers) GetUserBinanceAccounts(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	userID, ok := ctx.Value("userID").(int32)
-	if !ok {
-		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
-		return
-	}
 
-	accs, err := h.db.Queries.GetUserBinanceAccountsWithStatus(ctx, userID)
+	accs, err := h.db.Queries.GetUserBinanceAccountsWithStatus(ctx, h.userID)
 	if err != nil {
 		http.Error(w, "Error getting accounts", http.StatusInternalServerError)
 		return
@@ -1076,12 +985,6 @@ func (h *UserHandlers) GetUserBinanceAccounts(w http.ResponseWriter, r *http.Req
 func (h *UserHandlers) DeleteBinanceAccount(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	userID, ok := ctx.Value("userID").(int32)
-	if !ok {
-		http.Error(w, "user ID not found in context", http.StatusInternalServerError)
-		return
-	}
-
 	vars := mux.Vars(r)
 	idStr := vars["id"]
 
@@ -1093,7 +996,7 @@ func (h *UserHandlers) DeleteBinanceAccount(w http.ResponseWriter, r *http.Reque
 
 	params := db.DeleteBinanceAccountParams{
 		ID:     int32(AccID),
-		UserID: userID,
+		UserID: h.userID,
 	}
 
 	if err = h.db.Queries.DeleteBinanceAccount(ctx, params); err != nil {
@@ -1104,24 +1007,10 @@ func (h *UserHandlers) DeleteBinanceAccount(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func decimalToPgNumeric(d decimal.Decimal) (pgtype.Numeric, error) {
-	var pgNum pgtype.Numeric
-	err := pgNum.Scan(d.String())
-	if err != nil {
-		return pgtype.Numeric{}, fmt.Errorf("error converting decimal to numeric: %v", err)
-	}
-	return pgNum, nil
-}
-
 func (h *UserHandlers) getBalanceReturn(w http.ResponseWriter, r *http.Request, queryFunc func(context.Context, int32) (any, error), errorMsg string) {
 	ctx := r.Context()
-	userID, ok := ctx.Value("userID").(int32)
-	if !ok {
-		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
-		return
-	}
 
-	balance, err := queryFunc(ctx, userID)
+	balance, err := queryFunc(ctx, h.userID)
 	if err != nil {
 		http.Error(w, errorMsg, http.StatusInternalServerError)
 		return
@@ -1131,7 +1020,7 @@ func (h *UserHandlers) getBalanceReturn(w http.ResponseWriter, r *http.Request, 
 	json.NewEncoder(w).Encode(balance)
 }
 
-// Specific handlers using the generic function
+// GetPreviousMonthReturn Specific handlers using the generic function
 func (h *UserHandlers) GetPreviousMonthReturn(w http.ResponseWriter, r *http.Request) {
 	h.getBalanceReturn(w, r, h.db.Queries.GetUserTotalBalanceLatestCompleteMonth,
 		"Error getting complete month balance from db")
@@ -1148,7 +1037,37 @@ func (h *UserHandlers) GetPreviousDayReturn(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *UserHandlers) testCache(w http.ResponseWriter, r *http.Request) {
-	h.GetOrCreateClient("", "", "main")
+	ctx := r.Context()
+
+	err := h.CacheUserClients(ctx, h.userID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error CacheUserClients: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	type Res struct {
+		APIKey    string `json:"api_key"`
+		SecretKey string `json:"secret"`
+		KeyType   string `json:"type"`
+		BaseURL   string `json:"base"`
+		UserAgent string `json:"agent"`
+	}
+
+	client := h.clients["sub4"]
+
+	var res Res
+	if client != nil {
+		res = Res{
+			APIKey:    client.APIKey,
+			SecretKey: client.SecretKey,
+			KeyType:   client.KeyType,
+			BaseURL:   client.BaseURL,
+			UserAgent: client.UserAgent,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
 }
 
 func SetupRoutes(db *database.Database) *mux.Router {
@@ -1162,7 +1081,7 @@ func SetupRoutes(db *database.Database) *mux.Router {
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./web/static/"))))
 
 	// Public routes (middleware will skip auth for these)
-	r.HandleFunc("/login", loginPageHandler).Methods("GET")               // Login page
+	r.HandleFunc("/login", userHandler.loginPageHandler).Methods("GET")   // Login page
 	r.HandleFunc("/api/login", userHandler.Login).Methods("POST")         // Login API
 	r.HandleFunc("/api/register", userHandler.CreateUser).Methods("POST") // Registration API (optional)
 	r.HandleFunc("/api/webhook", userHandler.Webhook).Methods("POST")
@@ -1203,7 +1122,7 @@ func SetupRoutes(db *database.Database) *mux.Router {
 	// Binance endpoints
 	r.HandleFunc("/api/test-binance", userHandler.TestBinance).Methods("GET")
 	r.HandleFunc("/api/get-account-info", userHandler.GetAccountInfo).Methods("GET")
-	r.HandleFunc("/api/get-margin-account-info", userHandler.GetMarginAccountInfo).Methods("POST")
+	r.HandleFunc("/api/get-margin-account-info", userHandler.BnGetMarginAccInfo).Methods("POST")
 	r.HandleFunc("/api/binance-accounts", userHandler.CreateBinanceAccount).Methods("POST")
 	r.HandleFunc("/api/binance-accounts", userHandler.GetUserBinanceAccounts).Methods("GET")
 	r.HandleFunc("/api/binance-accounts/{id}", userHandler.DeleteBinanceAccount).Methods("DELETE")
@@ -1211,7 +1130,7 @@ func SetupRoutes(db *database.Database) *mux.Router {
 
 	// Tests
 	r.HandleFunc("/test/btb", userHandler.BnTestBiance).Methods("GET")
-	r.HandleFunc("/test/ccc", userHandler.BnGetMarginAccountInfo).Methods("GET")
+	r.HandleFunc("/test/ccc", userHandler.BnGetMarginAccInfo).Methods("GET")
 
 	return r
 }

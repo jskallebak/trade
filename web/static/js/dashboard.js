@@ -217,6 +217,8 @@ class Dashboard {
       const response = await this.apiCall('/api/binance-accounts');
       const data = await response.json();
 
+      console.log(data)
+
       const tbody = document.getElementById('binanceAccountsTable');
       if (tbody) {
         // Store existing balance values before clearing the table
@@ -270,12 +272,11 @@ class Dashboard {
     }
   }
 
-  async loadAccountBalance(accountId, key, secret) {
+  async loadAccountBalance(accountId, name) {
     try {
       const accountData = {
-        key: key,
-        secret: secret
-      };
+        Name: name,
+      }
 
       const response = await this.apiCall('/api/get-margin-account-info', {
         method: 'POST',
@@ -289,9 +290,13 @@ class Dashboard {
         return;
       }
 
+      console.log(response)
+
       if (response.ok) {
         const accInfo = await response.json();
-        const balance = parseFloat(accInfo.TotalNetAssetOfUSDT || accInfo.totalNetAssetOfUsdt || 0);
+        console.log(accInfo)
+        let balance = parseFloat(accInfo.totalCollateralValueInUSDT || accInfo.totalCollateralValueInUsdt || 0);
+        console.log("test: ", balance)
 
         this.accountBalances.set(accountId, balance);
 
@@ -304,7 +309,6 @@ class Dashboard {
         // Reset any error styling that might have been applied
         balanceElement.style.color = '';
 
-        this.updateTotalBalance();
 
       } else {
         const error = await response.text();
@@ -319,7 +323,6 @@ class Dashboard {
         }
         // If we have a previous valid balance (starts with $), keep it
 
-        this.updateTotalBalance();
       }
     } catch (error) {
       console.error('Network error loading account balance:', error);
@@ -336,6 +339,7 @@ class Dashboard {
       }
 
       this.updateTotalBalance();
+      balance = 0
     }
   }
 
@@ -465,7 +469,7 @@ class Dashboard {
     });
 
     // Load account balance asynchronously (don't await it)
-    this.loadAccountBalance(account.id, account.api_key, account.api_secret);
+    this.loadAccountBalance(account.id, account.name);
 
     return row; // Return the DOM node immediately
   }
